@@ -1,6 +1,7 @@
 import { BadRequest, Forbidden } from '@feathersjs/errors'
 import { Id, Params } from '@feathersjs/feathers'
 import appRootPath from 'app-root-path'
+import { compareVersions } from 'compare-versions'
 import { SequelizeServiceOptions, Service } from 'feathers-sequelize'
 import fs from 'fs'
 import path from 'path'
@@ -32,7 +33,7 @@ import {
   getUserRepos,
   pushProjectToGithub
 } from '../githubapp/githubapp-helper'
-import { getProjectConfig, getProjectPackageJson, onProjectEvent } from './project-helper'
+import { getEnginePackageJson, getProjectConfig, getProjectPackageJson, onProjectEvent } from './project-helper'
 
 const templateFolderDirectory = path.join(appRootPath.path, `packages/projects/template-project/`)
 
@@ -220,6 +221,7 @@ export class Project extends Service {
 
     const packageData = Object.assign({}, templateProjectJson) as any
     packageData.name = projectName
+    packageData.etherealEngine.version = getEnginePackageJson().version
     fs.writeFileSync(path.resolve(projectLocalDirectory, 'package.json'), JSON.stringify(packageData, null, 2))
 
     await uploadLocalProjectToProvider(projectName, false)
@@ -289,6 +291,14 @@ export class Project extends Service {
       logger.error(err)
       throw err
     }
+
+    const projectVersion = getProjectPackageJson(projectName).etherealEngine?.version
+    if (!projectVersion)
+      throw new Error(`[Project]: Project ${projectName} does not have an etherealEngine version specified. It must be present in the project\'s package.json in the form \"etherealEngine\": {\"version\"\"[version]\"}'`)
+
+    const engineVersion = getEnginePackageJson().version
+    if (compareVersions(projectVersion, engineVersion) !== 0)
+      throw new Error(`[Project]: Project ${projectName} specified to run with Ethereal Engine version ${projectVersion}, which does not match the deployment\'s version ${engineVersion}. Update the project to specify and work with version ${engineVersion}`)
 
     await uploadLocalProjectToProvider(projectName)
 

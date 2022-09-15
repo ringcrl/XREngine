@@ -140,6 +140,10 @@ export const getProjectPackageJson = (projectName: string): ProjectPackageJsonTy
   return require(path.resolve(projectsRootFolder, projectName, 'package.json'))
 }
 
+export const getEnginePackageJson = (): ProjectPackageJsonType => {
+  return require(path.resolve(appRootPath.path, 'packages/server-core/package.json'))
+}
+
 export const getProjectEnv = async (app: Application, projectName: string) => {
   const projectSetting = await app.service('project-setting').find({
     query: {
