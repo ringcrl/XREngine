@@ -3,6 +3,7 @@ import appRootPath from 'app-root-path'
 import { iff, isProvider } from 'feathers-hooks-common'
 import fs from 'fs'
 import _ from 'lodash'
+import { Octokit } from '@octokit/rest'
 import path from 'path'
 
 import { UserInterface } from '@xrengine/common/src/dbmodels/UserInterface'
@@ -14,12 +15,16 @@ import projectPermissionAuthenticate from '../../hooks/project-permission-authen
 import verifyScope from '../../hooks/verify-scope'
 import { getStorageProvider } from '../../media/storageprovider/storageprovider'
 import { UserParams } from '../../user/user/user.class'
-import { pushProjectToGithub } from '../githubapp/githubapp-helper'
+import {
+  getAuthenticatedRepo,
+  pushProjectToGithub
+} from '../githubapp/githubapp-helper'
 import { checkBuilderService, retriggerBuilderService } from './project-helper'
 import { Project } from './project.class'
 import projectDocs from './project.docs'
 import hooks from './project.hooks'
 import createModel from './project.model'
+import {GITHUB_URL_REGEX} from "@xrengine/common/src/constants/GitHubConstants";
 
 const projectsRootFolder = path.join(appRootPath.path, 'packages/projects/projects/')
 declare module '@xrengine/common/declarations' {
@@ -120,6 +125,46 @@ export default (app: Application): void => {
         iff(isProvider('external'), verifyScope('editor', 'write') as any),
         projectPermissionAuthenticate('write')
       ]
+    }
+  })
+
+  app.use('public-project-tags', {
+    get: async (url: string, params?: Params): Promise<any> => {
+      let repoPath = await getAuthenticatedRepo(url)
+      if (!repoPath) repoPath = url //public repo
+
+      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
+      if (!githubPathRegexExec) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
+      const split = githubPathRegexExec[1].split('/')
+      const owner = split[0]
+      const repo = split[1].replace('.git', '')
+
+      const octoKit = new Octokit({ })
+      try {
+        const tagResponse = await octoKit.request(`GET /repos/${owner}/${repo}/tags`)
+        return Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject) => {
+          try {
+            const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`, {
+              ref: tag.name
+            })
+            const content = JSON.parse(Buffer.from(blobResponse.data.content, 'base64').toString())
+            resolve({
+              projectVersion: tag.name,
+              engineVersion: content.etherealEngine?.version,
+              commitSHA: tag.commit.sha
+            })
+          } catch(err) {
+            logger.error('Error getting tagged package.json %s/%s:%s %o', owner, repo, tag.name, err)
+            reject(err)
+          }
+        })))
+      } catch(err) {
+        logger.error('error getting repo tags %o', err)
+        throw err
+      }
     }
   })
 

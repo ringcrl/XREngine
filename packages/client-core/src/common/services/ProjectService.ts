@@ -173,6 +173,15 @@ export const ProjectService = {
         API.instance.client.service('project').off('patched', projectPatchedListener)
       }
     }, [])
+  },
+
+  fetchPublicProjectTags: async (url) => {
+    try {
+      return API.instance.client.service('public-project-tags').get(url)
+    } catch(err) {
+      logger.error('Error with fetching tags for a public project', err)
+      throw err
+    }
   }
 }
 

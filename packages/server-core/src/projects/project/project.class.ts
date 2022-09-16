@@ -292,14 +292,6 @@ export class Project extends Service {
       throw err
     }
 
-    const projectVersion = getProjectPackageJson(projectName).etherealEngine?.version
-    if (!projectVersion)
-      throw new Error(`[Project]: Project ${projectName} does not have an etherealEngine version specified. It must be present in the project\'s package.json in the form \"etherealEngine\": {\"version\"\"[version]\"}'`)
-
-    const engineVersion = getEnginePackageJson().version
-    if (compareVersions(projectVersion, engineVersion) !== 0)
-      throw new Error(`[Project]: Project ${projectName} specified to run with Ethereal Engine version ${projectVersion}, which does not match the deployment\'s version ${engineVersion}. Update the project to specify and work with version ${engineVersion}`)
-
     await uploadLocalProjectToProvider(projectName)
 
     const projectConfig = (await getProjectConfig(projectName)) ?? {}

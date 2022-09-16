@@ -29,6 +29,10 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
   const [processing, setProcessing] = useState(false)
   const [source, setSource] = useState('url')
   const [error, setError] = useState('')
+  const [submitDisabled, setSubmitDisabled] = useState(true)
+  const [showTagSelector, setShowTagSelector] = useState(false)
+  const [tagData, setTagData] = useState([])
+  const [selectedTag, setSelectedTag] = useState('')
 
   const handleSubmit = async () => {
     try {
@@ -61,14 +65,44 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
 
   const handleClose = () => {
     setProjectURL('')
+    setSelectedTag('')
     setError('')
     onClose()
+  }
+
+  const handleInputBlur = async (e) => {
+    try {
+      const projectResponse = await ProjectService.fetchPublicProjectTags(e.target.value)
+      if (projectResponse.error === 'invalidUrl') {
+        setShowTagSelector(false)
+        setError(projectResponse.text)
+      } else {
+        setShowTagSelector(true)
+        setTagData(projectResponse)
+      }
+    } catch(err) {
+      setShowTagSelector(false)
+      console.log('projectResponse error', err)
+    }
+  }
+
+  const handleTagChange = async (e) => {
+    setSelectedTag(e.target.value)
+    setError('')
+    setSubmitDisabled(false)
   }
 
   const projectMenu: InputMenuItem[] = repos.map((el) => {
     return {
       value: el.repositoryPath,
       label: `${el.name} (${el.user})`
+    }
+  })
+
+  const tagMenu: InputMenuItem[] = tagData.map(el => {
+    return {
+      value: el.commitSHA,
+      label: `${el.commitSHA} - Project Version ${el.projectVersion}, Engine Version ${el.engineVersion}`
     }
   })
 
@@ -90,6 +124,17 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
           />
         )}
 
+        {!processing && tagData && tagData.length > 0 && showTagSelector && (
+            <InputSelect
+              name="tagData"
+              label={t('admin:components.project.tagData')}
+              value={selectedTag}
+              menu={tagMenu}
+              error={error}
+              onChange={handleTagChange}
+            />
+        )}
+
         {!processing && source === 'list' && repos && repos.length != 0 ? (
           <InputSelect
             name="projectURL"
@@ -106,6 +151,7 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
             value={projectURL}
             error={error}
             onChange={handleChange}
+            onBlur={handleInputBlur}
           />
         )}
 
@@ -117,7 +163,7 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
               <Button className={styles.outlinedButton} onClick={onClose}>
                 {t('admin:components.common.cancel')}
               </Button>
-              <Button className={styles.gradientButton} onClick={handleSubmit}>
+              <Button className={styles.gradientButton} disabled={submitDisabled} onClick={handleSubmit}>
                 {t('admin:components.common.submit')}
               </Button>
             </>
