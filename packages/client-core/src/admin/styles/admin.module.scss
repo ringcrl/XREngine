@@ -687,3 +687,14 @@
   display: flex;
   flex-direction: row;
 }
+
+.projectMismatchWarning {
+  color: var(--amber);
+  text-align: center;
+  display: flex;
+  align-items: center;
+
+  & > svg {
+    font-size: 2.5em;
+  }
+}

@@ -1,7 +1,6 @@
 import { BadRequest, Forbidden } from '@feathersjs/errors'
 import { Id, Params } from '@feathersjs/feathers'
 import appRootPath from 'app-root-path'
-import { compareVersions } from 'compare-versions'
 import { SequelizeServiceOptions, Service } from 'feathers-sequelize'
 import fs from 'fs'
 import path from 'path'

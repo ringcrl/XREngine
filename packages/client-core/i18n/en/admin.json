@@ -159,7 +159,9 @@
       "inviteCodeCantEmpty": "Invite code can't be empty",
       "inviteCodeRequired": "Invite code is required",
       "source": "Source",
-      "files": "Files"
+      "files": "Files",
+      "tagData": "Tagged version",
+      "tagsprocessing": "Fetching Tagged Versions of project"
     },
     "instance": {
       "confirmInstanceDelete": "Do you want to delete instance"

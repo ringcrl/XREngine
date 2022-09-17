@@ -1,5 +1,6 @@
-import { Id } from '@feathersjs/feathers'
+import { Id, Params } from '@feathersjs/feathers'
 import appRootPath from 'app-root-path'
+import { compareVersions } from 'compare-versions'
 import { iff, isProvider } from 'feathers-hooks-common'
 import fs from 'fs'
 import _ from 'lodash'
@@ -19,7 +20,7 @@ import {
   getAuthenticatedRepo,
   pushProjectToGithub
 } from '../githubapp/githubapp-helper'
-import { checkBuilderService, retriggerBuilderService } from './project-helper'
+import {checkBuilderService, getEnginePackageJson, retriggerBuilderService} from './project-helper'
 import { Project } from './project.class'
 import projectDocs from './project.docs'
 import hooks from './project.hooks'
@@ -36,10 +37,18 @@ declare module '@xrengine/common/declarations' {
     'project-build': any
     'project-invalidate': any
     'project-github-push': any
+    'public-project-tags': any
   }
   interface Models {
     project: ReturnType<typeof createModel>
   }
+}
+
+interface ProjectTagResponse {
+  projectVersion: string
+  engineVersion: string
+  commitSHA: string
+  matchesEngineVersion: boolean
 }
 
 /**
@@ -139,13 +148,18 @@ export default (app: Application): void => {
         text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
       }
       const split = githubPathRegexExec[1].split('/')
+      if (!split[0] || !split[1]) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
       const owner = split[0]
       const repo = split[1].replace('.git', '')
 
       const octoKit = new Octokit({ })
       try {
+        const enginePackageJson = getEnginePackageJson()
         const tagResponse = await octoKit.request(`GET /repos/${owner}/${repo}/tags`)
-        return Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject) => {
+        const tagDetails = await Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject): Promise<ProjectTagResponse> => {
           try {
             const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`, {
               ref: tag.name
@@ -154,15 +168,21 @@ export default (app: Application): void => {
             resolve({
               projectVersion: tag.name,
               engineVersion: content.etherealEngine?.version,
-              commitSHA: tag.commit.sha
+              commitSHA: tag.commit.sha,
+              matchesEngineVersion: content.etherealEngine?.version ? compareVersions(content.etherealEngine?.version, enginePackageJson.version) === 0 : false
             })
           } catch(err) {
             logger.error('Error getting tagged package.json %s/%s:%s %o', owner, repo, tag.name, err)
             reject(err)
           }
-        })))
+        }))) as ProjectTagResponse[]
+        return tagDetails.sort((a, b) => compareVersions(b.projectVersion, a.projectVersion))
       } catch(err) {
         logger.error('error getting repo tags %o', err)
+        if (err.status === 404) return {
+          error: 'invalidUrl',
+          text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+        }
         throw err
       }
     }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 
 import { GithubAppInterface } from '@xrengine/common/src/interfaces/GithubAppInterface'
 
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
 import DialogActions from '@mui/material/DialogActions'
@@ -27,6 +28,7 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
   const { t } = useTranslation()
   const [projectURL, setProjectURL] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [tagsProcessing, setTagsProcessing] = useState(false)
   const [source, setSource] = useState('url')
   const [error, setError] = useState('')
   const [submitDisabled, setSubmitDisabled] = useState(true)
@@ -66,13 +68,22 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
   const handleClose = () => {
     setProjectURL('')
     setSelectedTag('')
+    setTagData([])
+    setShowTagSelector(false)
+    setSubmitDisabled(true)
     setError('')
     onClose()
   }
 
   const handleInputBlur = async (e) => {
     try {
+      setSelectedTag('')
+      setTagsProcessing(true)
+      setTagData([])
+      setSubmitDisabled(true)
+      setShowTagSelector(false)
       const projectResponse = await ProjectService.fetchPublicProjectTags(e.target.value)
+      setTagsProcessing(false)
       if (projectResponse.error === 'invalidUrl') {
         setShowTagSelector(false)
         setError(projectResponse.text)
@@ -81,6 +92,7 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
         setTagData(projectResponse)
       }
     } catch(err) {
+      setTagsProcessing(false)
       setShowTagSelector(false)
       console.log('projectResponse error', err)
     }
@@ -102,7 +114,7 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
   const tagMenu: InputMenuItem[] = tagData.map(el => {
     return {
       value: el.commitSHA,
-      label: `${el.commitSHA} - Project Version ${el.projectVersion}, Engine Version ${el.engineVersion}`
+      label: `Project Version ${el.projectVersion} - Engine Version ${el.engineVersion} - Commit ${el.commitSHA.slice(0, 8)}`
     }
   })
 
@@ -122,17 +134,6 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
             ]}
             onChange={handleChangeSource}
           />
-        )}
-
-        {!processing && tagData && tagData.length > 0 && showTagSelector && (
-            <InputSelect
-              name="tagData"
-              label={t('admin:components.project.tagData')}
-              value={selectedTag}
-              menu={tagMenu}
-              error={error}
-              onChange={handleTagChange}
-            />
         )}
 
         {!processing && source === 'list' && repos && repos.length != 0 ? (
@@ -155,12 +156,34 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
           />
         )}
 
+        {!processing && tagData && tagData.length > 0 && showTagSelector && (
+            <InputSelect
+                name="tagData"
+                label={t('admin:components.project.tagData')}
+                value={selectedTag}
+                menu={tagMenu}
+                error={error}
+                onChange={handleTagChange}
+            />
+        )}
+
+        {tagsProcessing && <LoadingView title={t('admin:components.project.tagsprocessing')} variant="body1" />}
+
+        {!processing && !tagsProcessing && selectedTag && selectedTag.length > 0 && tagData.length > 0 && !tagData.find(tag => tag.commitSHA === selectedTag)?.matchesEngineVersion &&
+            (
+                <div className={styles.projectMismatchWarning}>
+                  <WarningAmberIcon />
+                  This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed.
+                </div>
+            )
+        }
+
         {processing && <LoadingView title={t('admin:components.project.processing')} variant="body1" />}
 
         <DialogActions>
           {!processing && (
             <>
-              <Button className={styles.outlinedButton} onClick={onClose}>
+              <Button className={styles.outlinedButton} onClick={handleClose}>
                 {t('admin:components.common.cancel')}
               </Button>
               <Button className={styles.gradientButton} disabled={submitDisabled} onClick={handleSubmit}>
