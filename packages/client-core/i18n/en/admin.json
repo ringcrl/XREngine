@@ -161,7 +161,8 @@
       "source": "Source",
       "files": "Files",
       "tagData": "Tagged version",
-      "tagsprocessing": "Fetching Tagged Versions of project"
+      "tagsProcessing": "Fetching Tagged Versions of project",
+      "mismatchedProjectWarning": "This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed."
     },
     "instance": {
       "confirmInstanceDelete": "Do you want to delete instance"

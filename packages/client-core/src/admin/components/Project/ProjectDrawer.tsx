@@ -111,6 +111,8 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
     }
   })
 
+  console.log('processing', processing, 'tagsProcessing', tagsProcessing, 'selectedTag', selectedTag, selectedTag.length > 0, tagData.length > 0, tagData.find(tag => tag.commitSHA === selectedTag)?.matchesEngineVersion)
+
   const tagMenu: InputMenuItem[] = tagData.map(el => {
     return {
       value: el.commitSHA,
@@ -167,13 +169,13 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
             />
         )}
 
-        {tagsProcessing && <LoadingView title={t('admin:components.project.tagsprocessing')} variant="body1" />}
+        {tagsProcessing && <LoadingView title={t('admin:components.project.tagsProcessing')} variant="body1" />}
 
         {!processing && !tagsProcessing && selectedTag && selectedTag.length > 0 && tagData.length > 0 && !tagData.find(tag => tag.commitSHA === selectedTag)?.matchesEngineVersion &&
             (
                 <div className={styles.projectMismatchWarning}>
                   <WarningAmberIcon />
-                  This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed.
+                  {t('admin:components.project.mismatchedProjectWarning')}
                 </div>
             )
         }

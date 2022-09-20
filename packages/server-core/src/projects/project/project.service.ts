@@ -17,7 +17,8 @@ import verifyScope from '../../hooks/verify-scope'
 import { getStorageProvider } from '../../media/storageprovider/storageprovider'
 import { UserParams } from '../../user/user/user.class'
 import {
-  getAuthenticatedRepo,
+  createGitHubApp, getAppOctokit,
+  getAuthenticatedRepo, getGitHubAppRepos, getInstallationOctokit,
   pushProjectToGithub
 } from '../githubapp/githubapp-helper'
 import {checkBuilderService, getEnginePackageJson, retriggerBuilderService} from './project-helper'
@@ -154,13 +155,29 @@ export default (app: Application): void => {
       }
       const owner = split[0]
       const repo = split[1].replace('.git', '')
-
-      const octoKit = new Octokit({ })
+      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
+        where: {
+          userId: params!.user.id,
+          type: 'github'
+        }
+      })
+      const repos = await getGitHubAppRepos()
+      const octoKit = githubIdentityProvider
+          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
+          : await (async () => {
+            console.log('Using GH app auth')
+            await createGitHubApp()
+            console.log('createGitHubApp successful')
+            return getAppOctokit()
+          })()
       try {
+        let headIsTagged = false
         const enginePackageJson = getEnginePackageJson()
+        const headResponse = await octoKit.request(`GET /repos/${owner}/${repo}/commits`)
         const tagResponse = await octoKit.request(`GET /repos/${owner}/${repo}/tags`)
-        const tagDetails = await Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject): Promise<ProjectTagResponse> => {
+        let tagDetails = await Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject): Promise<ProjectTagResponse> => {
           try {
+            if (tag.commit.sha === headResponse.data[0].sha) headIsTagged = true
             const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`, {
               ref: tag.name
             })
@@ -169,14 +186,25 @@ export default (app: Application): void => {
               projectVersion: tag.name,
               engineVersion: content.etherealEngine?.version,
               commitSHA: tag.commit.sha,
-              matchesEngineVersion: content.etherealEngine?.version ? compareVersions(content.etherealEngine?.version, enginePackageJson.version) === 0 : false
+              matchesEngineVersion: content.etherealEngine?.version ? compareVersions(content.etherealEngine?.version, enginePackageJson.version || '0.0.0') === 0 : false
             })
           } catch(err) {
             logger.error('Error getting tagged package.json %s/%s:%s %o', owner, repo, tag.name, err)
             reject(err)
           }
         }))) as ProjectTagResponse[]
-        return tagDetails.sort((a, b) => compareVersions(b.projectVersion, a.projectVersion))
+        if (!headIsTagged) {
+          const headContent = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
+          const content = JSON.parse(Buffer.from(headContent.data.content, 'base64').toString())
+          tagDetails = tagDetails.sort((a, b) => compareVersions(b.projectVersion, a.projectVersion))
+          tagDetails.unshift({
+            projectVersion: '{Latest commit}',
+            engineVersion: content.etherealEngine?.version,
+            commitSHA: headResponse.data[0].sha,
+            matchesEngineVersion: content.etherealEngine?.version ? compareVersions(content.etherealEngine?.version, enginePackageJson.version || '0.0.0') === 0 : false
+          })
+        }
+        return tagDetails
       } catch(err) {
         logger.error('error getting repo tags %o', err)
         if (err.status === 404) return {
@@ -185,6 +213,15 @@ export default (app: Application): void => {
         }
         throw err
       }
+    }
+  })
+
+  app.service('public-project-tags').hooks({
+    before: {
+      get: [
+        authenticate(),
+        iff(isProvider('external'), verifyScope('projects', 'read') as any)
+      ]
     }
   })
 

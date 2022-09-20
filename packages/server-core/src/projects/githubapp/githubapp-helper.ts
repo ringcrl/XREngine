@@ -10,7 +10,6 @@ import { GITHUB_PER_PAGE, GITHUB_URL_REGEX } from '@xrengine/common/src/constant
 import { GithubAppInterface } from '@xrengine/common/src/interfaces/GithubAppInterface'
 import { ProjectInterface } from '@xrengine/common/src/interfaces/ProjectInterface'
 import { UserInterface } from '@xrengine/common/src/interfaces/User'
-import { isDev } from '@xrengine/common/src/utils/isDev'
 import {
   AudioFileTypes,
   ImageFileTypes,
@@ -86,8 +85,12 @@ export const getGitHubAppRepos = async () => {
 export const getAuthenticatedRepo = async (repositoryPath: string) => {
   try {
     if (!/.git$/.test(repositoryPath)) repositoryPath = repositoryPath + '.git'
+    repositoryPath = repositoryPath.toLowerCase()
     const repos = await getGitHubAppRepos()
+    console.log('repositoryPath', repositoryPath)
+    console.log('repos', repos)
     const filtered = repos.filter((repo) => repo.repositoryPath == repositoryPath)
+    console.log('filtered', filtered)
     if (filtered && filtered[0]) {
       const token = await getAccessTokenByUser(filtered[0].user)
       if (token === '') return null
@@ -101,9 +104,11 @@ export const getAuthenticatedRepo = async (repositoryPath: string) => {
 }
 
 export const getInstallationOctokit = async (repo) => {
+  console.log('getInstallationOctokit', repo)
   if (!repo) return null
   let installationId
   await app.eachInstallation(({ installation }) => {
+    console.log('installation', installation)
     if (repo.user == installation.account?.login) installationId = installation.id
   })
   const installationAuth = await app.octokit.auth({
@@ -114,6 +119,27 @@ export const getInstallationOctokit = async (repo) => {
   return new Octokit({
     auth: installationAuth.token // directly pass the token
   })
+}
+
+export const getAppOctokit = async() => {
+  let privateKey = config.server.gitPem
+  privateKey = privateKey.replace('-----BEGIN RSA PRIVATE KEY-----', '')
+  privateKey = privateKey.replace('-----END RSA PRIVATE KEY-----', '')
+  privateKey = privateKey.replace(' ', '\n')
+  privateKey = `-----BEGIN RSA PRIVATE KEY-----${privateKey}\n-----END RSA PRIVATE KEY-----`
+  const auth = {
+    appId: config.authentication.oauth.github.appid,
+    privateKey,
+    clientId: config.authentication.oauth.github.key,
+    clientSecret: config.authentication.oauth.github.secret
+  }
+  const appOct = new Octokit({
+    authStrategy: createAppAuth,
+    auth: auth
+  })
+  const { slug } = await appOct.request('GET /user')
+  console.log('sluggo', slug)
+  return appOct
 }
 
 export const getAccessTokenByUser = async (user) => {
