@@ -27,6 +27,8 @@ import projectDocs from './project.docs'
 import hooks from './project.hooks'
 import createModel from './project.model'
 import {GITHUB_URL_REGEX} from "@xrengine/common/src/constants/GitHubConstants";
+import { Forbidden } from "@feathersjs/errors";
+import config from "../../appconfig";
 
 const projectsRootFolder = path.join(appRootPath.path, 'packages/projects/projects/')
 declare module '@xrengine/common/declarations' {
@@ -38,7 +40,8 @@ declare module '@xrengine/common/declarations' {
     'project-build': any
     'project-invalidate': any
     'project-github-push': any
-    'public-project-tags': any
+    'project-branches': any
+    'project-tags': any
   }
   interface Models {
     project: ReturnType<typeof createModel>
@@ -138,8 +141,16 @@ export default (app: Application): void => {
     }
   })
 
-  app.use('public-project-tags', {
+  app.use('project-branches', {
     get: async (url: string, params?: Params): Promise<any> => {
+      const publicURL = params.query.publicURL
+      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
+        where: {
+          userId: params!.user.id,
+          type: 'github'
+        }
+      })
+      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
       let repoPath = await getAuthenticatedRepo(url)
       if (!repoPath) repoPath = url //public repo
 
@@ -155,27 +166,102 @@ export default (app: Application): void => {
       }
       const owner = split[0]
       const repo = split[1].replace('.git', '')
+      const repos = await getGitHubAppRepos()
+      const octoKit = publicURL || githubIdentityProvider
+          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
+          : await (async () => {
+            await createGitHubApp()
+            return getInstallationOctokit(
+                repos.find((repo) => repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git')
+            )
+          })()
+
+      try {
+        const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
+        const returnedBranches = [{ name: repoResponse.data.default_branch, isMain: true }]
+        const deploymentBranch = `${config.server.releaseName}-deployment`
+        try {
+          console.log('deploymentBranch', deploymentBranch)
+          await octoKit.request(`GET /repos/${owner}/${repo}/branches/${deploymentBranch}`)
+          console.log('deployment branch exists')
+          returnedBranches.push({
+            name: deploymentBranch,
+            isMain: false
+          })
+        } catch(err) {
+          logger.error(err)
+        }
+        return returnedBranches
+      } catch(err) {
+        logger.error('error getting branches for project %o', err)
+        if (err.status === 404) return {
+          error: 'invalidUrl',
+          text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+        }
+        throw err
+      }
+    }
+  })
+
+  app.service('project-branches').hooks({
+    before: {
+      get: [
+        authenticate(),
+        iff(isProvider('external'), verifyScope('projects', 'read') as any)
+      ]
+    }
+  })
+
+  app.use('project-tags', {
+    get: async (url: string, params?: Params): Promise<any> => {
+      const publicURL = params.query.publicURL
       const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
         where: {
           userId: params!.user.id,
           type: 'github'
         }
       })
+      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
+      let repoPath = await getAuthenticatedRepo(url)
+      if (!repoPath) repoPath = url //public repo
+
+      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
+      if (!githubPathRegexExec) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
+      const split = githubPathRegexExec[1].split('/')
+      if (!split[0] || !split[1]) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
+      const owner = split[0]
+      const repo = split[1].replace('.git', '')
       const repos = await getGitHubAppRepos()
-      const octoKit = githubIdentityProvider
+      const octoKit = publicURL || githubIdentityProvider
           ? new Octokit({ auth: githubIdentityProvider.oauthToken })
           : await (async () => {
-            console.log('Using GH app auth')
             await createGitHubApp()
-            console.log('createGitHubApp successful')
-            return getAppOctokit()
+            return getInstallationOctokit(
+                repos.find((repo) => repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git')
+            )
           })()
       try {
         let headIsTagged = false
         const enginePackageJson = getEnginePackageJson()
-        const headResponse = await octoKit.request(`GET /repos/${owner}/${repo}/commits`)
-        const tagResponse = await octoKit.request(`GET /repos/${owner}/${repo}/tags`)
-        let tagDetails = await Promise.all(tagResponse.data.map(tag => new Promise(async (resolve, reject): Promise<ProjectTagResponse> => {
+        const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
+        const branchName = params.query.branchName || repoResponse.default_branch
+        const [headResponse, tagResponse] = await Promise.all([
+          octoKit.request(`GET /repos/${owner}/${repo}/commits`, {
+            sha: branchName
+          }),
+          octoKit.request(`GET /repos/${owner}/${repo}/tags`, {
+            sha: branchName
+          })
+        ])
+        const commits = headResponse.data.map(commit => commit.sha)
+        const matchingTags = tagResponse.data.filter(tag => commits.indexOf(tag.commit.sha) > -1)
+        let tagDetails = await Promise.all(matchingTags.map(tag => new Promise(async (resolve, reject): Promise<ProjectTagResponse> => {
           try {
             if (tag.commit.sha === headResponse.data[0].sha) headIsTagged = true
             const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`, {
@@ -216,7 +302,7 @@ export default (app: Application): void => {
     }
   })
 
-  app.service('public-project-tags').hooks({
+  app.service('project-tags').hooks({
     before: {
       get: [
         authenticate(),

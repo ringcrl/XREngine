@@ -25,6 +25,7 @@ import logger from '../../ServerLogger'
 import { refreshAppConfig } from '../../updateAppConfig'
 import { deleteFolderRecursive, writeFileSyncRecursive } from '../../util/fsHelperFunctions'
 import { useGit } from '../../util/gitHelperFunctions'
+import error from "@xrengine/editor/src/components/Error";
 
 let app, appOctokit
 
@@ -60,7 +61,7 @@ export const createGitHubApp = async () => {
   }
 }
 
-export const getGitHubAppRepos = async () => {
+export const getGitHubAppRepos = async (): Promise<Array<GithubAppInterface> | error> => {
   try {
     if (!config.server.gitPem || config.server.gitPem == '') await refreshAppConfig()
     if (!config.server.gitPem || config.server.gitPem == '') return []
@@ -87,10 +88,8 @@ export const getAuthenticatedRepo = async (repositoryPath: string) => {
     if (!/.git$/.test(repositoryPath)) repositoryPath = repositoryPath + '.git'
     repositoryPath = repositoryPath.toLowerCase()
     const repos = await getGitHubAppRepos()
-    console.log('repositoryPath', repositoryPath)
     console.log('repos', repos)
-    const filtered = repos.filter((repo) => repo.repositoryPath == repositoryPath)
-    console.log('filtered', filtered)
+    const filtered = repos.filter((repo) => repo.repositoryPath.toLowerCase() == repositoryPath)
     if (filtered && filtered[0]) {
       const token = await getAccessTokenByUser(filtered[0].user)
       if (token === '') return null
@@ -104,11 +103,9 @@ export const getAuthenticatedRepo = async (repositoryPath: string) => {
 }
 
 export const getInstallationOctokit = async (repo) => {
-  console.log('getInstallationOctokit', repo)
   if (!repo) return null
   let installationId
   await app.eachInstallation(({ installation }) => {
-    console.log('installation', installation)
     if (repo.user == installation.account?.login) installationId = installation.id
   })
   const installationAuth = await app.octokit.auth({
@@ -119,27 +116,6 @@ export const getInstallationOctokit = async (repo) => {
   return new Octokit({
     auth: installationAuth.token // directly pass the token
   })
-}
-
-export const getAppOctokit = async() => {
-  let privateKey = config.server.gitPem
-  privateKey = privateKey.replace('-----BEGIN RSA PRIVATE KEY-----', '')
-  privateKey = privateKey.replace('-----END RSA PRIVATE KEY-----', '')
-  privateKey = privateKey.replace(' ', '\n')
-  privateKey = `-----BEGIN RSA PRIVATE KEY-----${privateKey}\n-----END RSA PRIVATE KEY-----`
-  const auth = {
-    appId: config.authentication.oauth.github.appid,
-    privateKey,
-    clientId: config.authentication.oauth.github.key,
-    clientSecret: config.authentication.oauth.github.secret
-  }
-  const appOct = new Octokit({
-    authStrategy: createAppAuth,
-    auth: auth
-  })
-  const { slug } = await appOct.request('GET /user')
-  console.log('sluggo', slug)
-  return appOct
 }
 
 export const getAccessTokenByUser = async (user) => {
@@ -214,6 +190,7 @@ export const pushProjectToGithub = async (
   project: ProjectInterface,
   user: UserInterface,
   reset = false,
+  commitSHA?: string,
   storageProviderName?: string
 ) => {
   const storageProvider = getStorageProvider(storageProviderName)
@@ -263,7 +240,8 @@ export const pushProjectToGithub = async (
         })()
     if (!octoKit) return
     try {
-      const result = await octoKit.rest.repos.get({
+      console.log('Checking repo exists')
+      await octoKit.rest.repos.get({
         owner,
         repo
       })
@@ -278,7 +256,8 @@ export const pushProjectToGithub = async (
         else await octoKit.repos.createInOrg({ org: owner, name: repo, auto_init: true })
       } else throw err
     }
-    const defaultBranch = `${config.server.releaseName}-deployment`
+    const deploymentBranch = `${config.server.releaseName}-deployment`
+    console.log('deploymentBranch', deploymentBranch)
     if (reset) {
       const projectDirectory = path.resolve(appRootPath.path, `packages/projects/projects/${project.name}/`)
 
@@ -295,9 +274,11 @@ export const pushProjectToGithub = async (
       const gitCloner = useGit(projectLocalDirectory)
       await gitCloner.clone(repoPath)
       const git = useGit(projectDirectory)
-      const branches = await git.branchLocal()
-      await git.push('origin', `${branches.current}:${defaultBranch}`, ['-f'])
-    } else await uploadToRepo(octoKit, files, owner, repo, defaultBranch, project.name, githubIdentityProvider != null)
+      console.log('commitSHA', commitSHA)
+      if (commitSHA) git.checkout(commitSHA)
+      await git.checkoutLocalBranch(deploymentBranch)
+      await git.push('origin', deploymentBranch, ['-f'])
+    } else await uploadToRepo(octoKit, files, owner, repo, deploymentBranch, project.name, githubIdentityProvider != null)
   } catch (err) {
     logger.error(err)
     throw err

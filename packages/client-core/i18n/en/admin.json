@@ -132,6 +132,7 @@
     },
     "project": {
       "addProject": "Add Project",
+      "updateProject": "Update Project",
       "rebuild": "Rebuild",
       "rebuilding": "Rebuilding",
       "checking": "Checking Rebuild",
@@ -160,9 +161,12 @@
       "inviteCodeRequired": "Invite code is required",
       "source": "Source",
       "files": "Files",
+      "branchData": "Source branch",
       "tagData": "Tagged version",
+      "branchProcessing": "Fetching branches of project",
       "tagsProcessing": "Fetching Tagged Versions of project",
-      "mismatchedProjectWarning": "This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed."
+      "mismatchedProjectWarning": "This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed.",
+      "needsGithubProvider": "You must connect your account with GitHub in order to add projects from public repos"
     },
     "instance": {
       "confirmInstanceDelete": "Do you want to delete instance"

@@ -247,7 +247,7 @@ export class Project extends Service {
    */
   // @ts-ignore
   async update(
-    data: { url: string; name?: string; needsRebuild?: boolean; reset?: boolean },
+    data: { url: string; name?: string; needsRebuild?: boolean; reset?: boolean; commitSHA?: string },
     placeholder?: null,
     params?: UserParams
   ) {
@@ -281,11 +281,9 @@ export class Project extends Service {
     const branchName = `${config.server.releaseName}-deployment`
     try {
       const branchExists = await git.raw(['ls-remote', '--heads', repoPath, `${branchName}`])
-      if (branchExists.length === 0) await git.checkoutLocalBranch(branchName)
-      else {
-        if (data.reset) await git.checkoutLocalBranch(branchName)
-        else await git.checkout(branchName)
-      }
+      if (data.commitSHA) git.checkout(data.commitSHA)
+      if (branchExists.length === 0 || data.reset) await git.checkoutLocalBranch(branchName)
+      else await git.checkout(branchName)
     } catch (err) {
       logger.error(err)
       throw err
@@ -323,7 +321,7 @@ export class Project extends Service {
       })
     }
 
-    if (data.reset) await pushProjectToGithub(this.app, returned, params!.user!, true)
+    if (data.reset) await pushProjectToGithub(this.app, returned, params!.user!, true, data.commitSHA)
     // run project install script
     if (projectConfig.onEvent) {
       await onProjectEvent(this.app, projectName, projectConfig.onEvent, 'onInstall')

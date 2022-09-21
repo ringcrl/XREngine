@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, {useEffect, useState} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { GithubAppInterface } from '@xrengine/common/src/interfaces/GithubAppInterface'
@@ -11,6 +11,7 @@ import DialogTitle from '@mui/material/DialogTitle'
 
 import { NotificationService } from '../../../common/services/NotificationService'
 import { ProjectService } from '../../../common/services/ProjectService'
+import { useAuthState } from "../../../user/services/AuthService";
 import DrawerView from '../../common/DrawerView'
 import InputRadio from '../../common/InputRadio'
 import InputSelect, { InputMenuItem } from '../../common/InputSelect'
@@ -24,17 +25,26 @@ interface Props {
   onClose: () => void
 }
 
-const ProjectDrawer = ({ open, repos, onClose }: Props) => {
+const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false, onClose }: Props) => {
   const { t } = useTranslation()
   const [projectURL, setProjectURL] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [branchProcessing, setBranchProcessing] = useState(false)
   const [tagsProcessing, setTagsProcessing] = useState(false)
   const [source, setSource] = useState('url')
-  const [error, setError] = useState('')
+  const [urlError, setUrlError] = useState('')
+  const [branchError, setBranchError] = useState('')
+  const [tagError, setTagError] = useState('')
   const [submitDisabled, setSubmitDisabled] = useState(true)
+  const [showBranchSelector, setShowBranchSelector] = useState(false)
   const [showTagSelector, setShowTagSelector] = useState(false)
+  const [branchData, setBranchData] = useState([])
   const [tagData, setTagData] = useState([])
-  const [selectedTag, setSelectedTag] = useState('')
+  const [selectedBranch, setSelectedBranch] = useState('')
+  const [selectedSHA, setSelectedSHA] = useState('')
+  const [resetSelected, setResetSelected] = useState(false)
+
+  const selfUser = useAuthState().user
 
   const handleSubmit = async () => {
     try {
@@ -42,11 +52,12 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
         setProcessing(true)
         const urlParts = projectURL.split('/')
         let projectName = urlParts.pop()
-        await ProjectService.uploadProject(projectURL, projectName, false)
+        await ProjectService.uploadProject(projectURL, projectName, !existingProject, selectedSHA)
         setProcessing(false)
+        resetState()
         handleClose()
       } else {
-        setError(t('admin:components.project.urlCantEmpty'))
+        setUrlError(t('admin:components.project.urlCantEmpty'))
       }
     } catch (err) {
       setProcessing(false)
@@ -54,39 +65,71 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
     }
   }
 
+  const resetState = (skipSetProjectURL=false, skipResetBranch=false) => {
+    if (!skipSetProjectURL) setProjectURL('')
+    if (!skipResetBranch) {
+      setSelectedBranch('')
+      setBranchData([])
+      setShowBranchSelector(false)
+    }
+    setSelectedSHA('')
+    setTagData([])
+    setShowTagSelector(false)
+    setSubmitDisabled(true)
+    setUrlError('')
+    setBranchError('')
+    setTagError('')
+    setResetSelected(false)
+  }
+
   const handleChangeSource = (e) => {
+    resetState()
     const { value } = e.target
     setSource(value)
   }
 
   const handleChange = (e) => {
     const { value } = e.target
-    setError(value ? '' : t('admin:components.project.urlRequired'))
+    setUrlError(value ? '' : t('admin:components.project.urlRequired'))
     setProjectURL(value)
   }
 
   const handleClose = () => {
-    setProjectURL('')
-    setSelectedTag('')
-    setTagData([])
-    setShowTagSelector(false)
-    setSubmitDisabled(true)
-    setError('')
+    resetState()
     onClose()
   }
 
-  const handleInputBlur = async (e) => {
+  const handleChangeRepo = async (e) => {
     try {
-      setSelectedTag('')
+      resetState(true)
+      setBranchProcessing(true)
+      const branchResponse = await ProjectService.fetchProjectBranches(e.target.value)
+      setBranchProcessing(false)
+      if (branchResponse.error === 'invalidUrl') {
+        setShowBranchSelector(false)
+        setBranchError(branchResponse.text)
+      } else {
+        setShowBranchSelector(true)
+        setBranchData(branchResponse)
+      }
+    } catch(err) {
+      setBranchProcessing(false)
+      setShowBranchSelector(false)
+      console.log('Branch fetch error', err)
+    }
+  }
+
+  const handleChangeBranch = async(e) => {
+    try {
+      resetState(true, true)
+      setSelectedBranch(e.target.value)
       setTagsProcessing(true)
-      setTagData([])
-      setSubmitDisabled(true)
-      setShowTagSelector(false)
-      const projectResponse = await ProjectService.fetchPublicProjectTags(e.target.value)
+      console.log('selectedBranch', selectedBranch, e.target.value)
+      const projectResponse = await ProjectService.fetchProjectTags(projectURL, e.target.value, source === 'url')
       setTagsProcessing(false)
       if (projectResponse.error === 'invalidUrl') {
         setShowTagSelector(false)
-        setError(projectResponse.text)
+        setTagError(projectResponse.text)
       } else {
         setShowTagSelector(true)
         setTagData(projectResponse)
@@ -98,9 +141,11 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
     }
   }
 
+  const hasGithubProvider = selfUser.identityProviders.value.find(ip => ip.type === 'github')
+
   const handleTagChange = async (e) => {
-    setSelectedTag(e.target.value)
-    setError('')
+    setSelectedSHA(e.target.value)
+    setTagError('')
     setSubmitDisabled(false)
   }
 
@@ -111,7 +156,12 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
     }
   })
 
-  console.log('processing', processing, 'tagsProcessing', tagsProcessing, 'selectedTag', selectedTag, selectedTag.length > 0, tagData.length > 0, tagData.find(tag => tag.commitSHA === selectedTag)?.matchesEngineVersion)
+  const branchMenu: InputMenuItem[] = branchData.map(el => {
+    return {
+      value: el.name,
+      label: `Branch: ${el.name} ${el.isMain ? '(Root branch)' : '(Deployment branch)'}`
+    }
+  })
 
   const tagMenu: InputMenuItem[] = tagData.map(el => {
     return {
@@ -119,13 +169,26 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
       label: `Project Version ${el.projectVersion} - Engine Version ${el.engineVersion} - Commit ${el.commitSHA.slice(0, 8)}`
     }
   })
+  
+  useEffect(() => {
+    console.log('project drawer opened', inputProjectURL, existingProject)
+    if (inputProjectURL && inputProjectURL.length > 0) {
+      console.log('Set project url and such')
+      setProjectURL(inputProjectURL)
+      handleChangeRepo({
+        target: {
+          value: inputProjectURL
+        }
+      })
+    }
+  }, [])
 
   return (
-    <DrawerView open={open} onClose={onClose}>
+    <DrawerView open={open} onClose={handleClose}>
       <Container maxWidth="sm" className={styles.mt20}>
-        <DialogTitle className={styles.textAlign}>{t('admin:components.project.addProject')}</DialogTitle>
+        <DialogTitle className={styles.textAlign}> {existingProject ? t('admin:components.project.updateProject'): t('admin:components.project.addProject')}</DialogTitle>
 
-        {!processing && repos && repos.length > 0 && (
+        {!processing && !existingProject && repos && repos.length > 0 && (
           <InputRadio
             name="source"
             label={t('admin:components.project.source')}
@@ -138,40 +201,64 @@ const ProjectDrawer = ({ open, repos, onClose }: Props) => {
           />
         )}
 
-        {!processing && source === 'list' && repos && repos.length != 0 ? (
+        {existingProject && (
+            <Checkbox
+                className={styles.checkbox}
+                checked={selectedInviteIds.has(invite.id)}
+                onChange={() => {
+                  toggleSelection(invite.id)
+                }}
+            />
+        )}
+
+        {!existingProject && source === 'list' && repos && repos.length != 0 ? (
           <InputSelect
             name="projectURL"
             label={t('admin:components.project.project')}
             value={projectURL}
             menu={projectMenu}
-            error={error}
-            onChange={handleChange}
+            error={urlError}
+            onChange={(e) => { handleChange(e); handleChangeRepo(e);}}
           />
         ) : (
+          (hasGithubProvider || existingProject) ?
           <InputText
             name="urlSelect"
             label={t('admin:components.project.githubPublicUrl')}
             value={projectURL}
-            error={error}
+            error={urlError}
+            disabled={existingProject}
             onChange={handleChange}
-            onBlur={handleInputBlur}
-          />
+            onBlur={handleChangeRepo}
+          /> : <div className={styles.needsGithubProvider}>{t('admin:components.project.needsGithubProvider')}</div>
         )}
 
-        {!processing && tagData && tagData.length > 0 && showTagSelector && (
+        {!processing && !branchProcessing && branchData && branchData.length > 0 && showBranchSelector && (
+            <InputSelect
+                name="branchData"
+                label={t('admin:components.project.branchData')}
+                value={selectedBranch}
+                menu={branchMenu}
+                error={branchError}
+                onChange={handleChangeBranch}
+            />
+        )}
+
+        {!processing && !tagsProcessing && tagData && tagData.length > 0 && showTagSelector && (
             <InputSelect
                 name="tagData"
                 label={t('admin:components.project.tagData')}
-                value={selectedTag}
+                value={selectedSHA}
                 menu={tagMenu}
-                error={error}
+                error={tagError}
                 onChange={handleTagChange}
             />
         )}
 
+        {branchProcessing && <LoadingView title={t('admin:components.project.branchProcessing')} variant="body1" />}
         {tagsProcessing && <LoadingView title={t('admin:components.project.tagsProcessing')} variant="body1" />}
 
-        {!processing && !tagsProcessing && selectedTag && selectedTag.length > 0 && tagData.length > 0 && !tagData.find(tag => tag.commitSHA === selectedTag)?.matchesEngineVersion &&
+        {!processing && !branchProcessing && !tagsProcessing && selectedSHA && selectedSHA.length > 0 && tagData.length > 0 && !tagData.find(tag => tag.commitSHA === selectedSHA)?.matchesEngineVersion &&
             (
                 <div className={styles.projectMismatchWarning}>
                   <WarningAmberIcon />

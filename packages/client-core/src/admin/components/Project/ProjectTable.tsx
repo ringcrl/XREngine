@@ -28,6 +28,8 @@ import styles from '../../styles/admin.module.scss'
 import GithubRepoDrawer from './GithubRepoDrawer'
 import ProjectFilesDrawer from './ProjectFilesDrawer'
 import UserPermissionDrawer from './UserPermissionDrawer'
+import ProjectDrawer from "./ProjectDrawer";
+import {useAdminGithubAppState} from "../../services/GithubAppService";
 
 const logger = multiLogger.child({ component: 'client-core:ProjectTable' })
 
@@ -55,11 +57,13 @@ const ProjectTable = ({ className }: Props) => {
   const [confirm, setConfirm] = useState({ ...defaultConfirm })
   const [project, _setProject] = useState<ProjectInterface | undefined>()
   const [showProjectFiles, setShowProjectFiles] = useState(false)
-  const [openGithubRepoDrawer, setOpenGithubRepoDrawer] = useState(false)
+  const [openProjectDrawer, setOpenProjectDrawer] = useState(false)
   const [openUserPermissionDrawer, setOpenUserPermissionDrawer] = useState(false)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(PROJECT_PAGE_LIMIT)
 
+  const githubAppState = useAdminGithubAppState()
+  const githubAppRepos = githubAppState.repos.value
   const adminProjectState = useProjectState()
   const adminProjects = adminProjectState.projects
   const adminProjectCount = adminProjects.value.length
@@ -211,9 +215,9 @@ const ProjectTable = ({ className }: Props) => {
     setShowProjectFiles(true)
   }
 
-  const handleOpenGithubRepoDrawer = (row) => {
+  const handleOpenProjectDrawer = (row) => {
     setProject(row)
-    setOpenGithubRepoDrawer(true)
+    setOpenProjectDrawer(true)
   }
 
   const handleOpenUserPermissionDrawer = (row) => {
@@ -221,8 +225,8 @@ const ProjectTable = ({ className }: Props) => {
     setOpenUserPermissionDrawer(true)
   }
 
-  const handleCloseGithubRepoDrawer = () => {
-    setOpenGithubRepoDrawer(false)
+  const handleCloseProjectDrawer = () => {
+    setOpenProjectDrawer(false)
     setProject(undefined)
   }
 
@@ -268,7 +272,7 @@ const ProjectTable = ({ className }: Props) => {
               className={styles.iconButton}
               name="update"
               disabled={el.repositoryPath === null && name !== 'default-project'}
-              onClick={() => openReuploadConfirmation(el)}
+              onClick={() => handleOpenProjectDrawer(el)}
             >
               <Download />
             </IconButton>
@@ -371,8 +375,8 @@ const ProjectTable = ({ className }: Props) => {
         handleRowsPerPageChange={handleRowsPerPageChange}
       />
 
-      {openGithubRepoDrawer && project && (
-        <GithubRepoDrawer open project={project} onClose={handleCloseGithubRepoDrawer} />
+      {openProjectDrawer && project && (
+        <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} inputProjectURL={project.repositoryPath} existingProject={true} onClose={() => setOpenProjectDrawer(false)} />
       )}
 
       {project && (

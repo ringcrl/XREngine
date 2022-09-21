@@ -20,13 +20,13 @@ const Projects = () => {
   const githubAppState = useAdminGithubAppState()
   const githubAppRepos = githubAppState.repos.value
   const { t } = useTranslation()
-  const [openProjectDrawer, setOpenPartyDrawer] = useState(false)
+  const [openProjectDrawer, setOpenProjectDrawer] = useState(false)
   const [rebuildModalOpen, setRebuildModalOpen] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState(true)
 
   const handleOpenProjectDrawer = () => {
     GithubAppService.fetchGithubAppRepos()
-    setOpenPartyDrawer(true)
+    setOpenProjectDrawer(true)
   }
 
   const handleSubmitRebuild = async () => {
@@ -108,7 +108,7 @@ const Projects = () => {
         onSubmit={handleSubmitRebuild}
       />
 
-      <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} onClose={() => setOpenPartyDrawer(false)} />
+      <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} onClose={() => setOpenProjectDrawer(false)} />
     </div>
   )
 }

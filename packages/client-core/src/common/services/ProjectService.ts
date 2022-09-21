@@ -60,8 +60,8 @@ export const ProjectService = {
   },
 
   // restricted to admin scope
-  uploadProject: async (url: string, name?: string, reset?: boolean) => {
-    const result = await API.instance.client.service('project').update({ url, name, reset })
+  uploadProject: async (url: string, name?: string, reset?: boolean, commitSHA?: string) => {
+    const result = await API.instance.client.service('project').update({ url, name, reset, commitSHA })
     logger.info({ result }, 'Upload project result')
     dispatchAction(ProjectAction.postProject({}))
     await API.instance.client.service('project-invalidate').patch({ projectName: name })
@@ -175,11 +175,29 @@ export const ProjectService = {
     }, [])
   },
 
-  fetchPublicProjectTags: async (url) => {
+  fetchProjectBranches: async (url, publicURL=true) => {
     try {
-      return API.instance.client.service('public-project-tags').get(url)
+      return API.instance.client.service('project-branches').get(url, {
+        query: {
+          publicURL
+        }
+      })
     } catch(err) {
-      logger.error('Error with fetching tags for a public project', err)
+      logger.error('Error with fetching tags for a project', err)
+      throw err
+    }
+  },
+
+  fetchProjectTags: async (url, branchName, publicURL=true) => {
+    try {
+      return API.instance.client.service('project-tags').get(url, {
+        query: {
+          branchName: branchName,
+          publicURL
+        }
+      })
+    } catch(err) {
+      logger.error('Error with fetching branches for a project', err)
       throw err
     }
   }
