@@ -175,11 +175,12 @@ export const ProjectService = {
     }, [])
   },
 
-  fetchProjectBranches: async (url, publicURL=true) => {
+  fetchProjectBranches: async (url, publicURL=true, existingProject=true) => {
     try {
       return API.instance.client.service('project-branches').get(url, {
         query: {
-          publicURL
+          publicURL,
+          existingProject
         }
       })
     } catch(err) {

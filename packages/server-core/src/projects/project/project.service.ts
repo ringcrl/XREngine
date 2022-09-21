@@ -144,6 +144,8 @@ export default (app: Application): void => {
   app.use('project-branches', {
     get: async (url: string, params?: Params): Promise<any> => {
       const publicURL = params.query.publicURL
+      const existingProject = params.query.existingProject
+      const projectName = params.query.projectName
       const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
         where: {
           userId: params!.user.id,
@@ -151,8 +153,7 @@ export default (app: Application): void => {
         }
       })
       if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
-      let repoPath = await getAuthenticatedRepo(url)
-      if (!repoPath) repoPath = url //public repo
+      url = url.toLowerCase()
 
       const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
       if (!githubPathRegexExec) return {
@@ -172,18 +173,26 @@ export default (app: Application): void => {
           : await (async () => {
             await createGitHubApp()
             return getInstallationOctokit(
-                repos.find((repo) => repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git')
-            )
+              repos.find((repo) => {
+                repo.repositoryPath = repo.repositoryPath.toLowerCase()
+                return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
+              })            )
           })()
 
       try {
+        const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
+        const content = JSON.parse(Buffer.from(blobResponse.data.content, 'base64').toString())
+        console.log('repo package.json', content)
+        if (content.name.toLowerCase() !== projectName.toLowerCase())
+          return {
+          error: 'invalidRepoProjectName',
+            text: 'The repository you are attempting to update from contains a different project than the one you are updating'
+          }
         const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
         const returnedBranches = [{ name: repoResponse.data.default_branch, isMain: true }]
         const deploymentBranch = `${config.server.releaseName}-deployment`
         try {
-          console.log('deploymentBranch', deploymentBranch)
           await octoKit.request(`GET /repos/${owner}/${repo}/branches/${deploymentBranch}`)
-          console.log('deployment branch exists')
           returnedBranches.push({
             name: deploymentBranch,
             isMain: false
@@ -222,8 +231,7 @@ export default (app: Application): void => {
         }
       })
       if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
-      let repoPath = await getAuthenticatedRepo(url)
-      if (!repoPath) repoPath = url //public repo
+      url = url.toLowerCase()
 
       const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
       if (!githubPathRegexExec) return {
@@ -243,7 +251,10 @@ export default (app: Application): void => {
           : await (async () => {
             await createGitHubApp()
             return getInstallationOctokit(
-                repos.find((repo) => repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git')
+                repos.find((repo) => {
+                  repo.repositoryPath = repo.repositoryPath.toLowerCase()
+                  return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
+                })
             )
           })()
       try {
@@ -279,10 +290,10 @@ export default (app: Application): void => {
             reject(err)
           }
         }))) as ProjectTagResponse[]
+        tagDetails = tagDetails.sort((a, b) => compareVersions(b.projectVersion, a.projectVersion))
         if (!headIsTagged) {
           const headContent = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
           const content = JSON.parse(Buffer.from(headContent.data.content, 'base64').toString())
-          tagDetails = tagDetails.sort((a, b) => compareVersions(b.projectVersion, a.projectVersion))
           tagDetails.unshift({
             projectVersion: '{Latest commit}',
             engineVersion: content.etherealEngine?.version,

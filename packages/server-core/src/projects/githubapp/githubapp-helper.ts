@@ -88,7 +88,6 @@ export const getAuthenticatedRepo = async (repositoryPath: string) => {
     if (!/.git$/.test(repositoryPath)) repositoryPath = repositoryPath + '.git'
     repositoryPath = repositoryPath.toLowerCase()
     const repos = await getGitHubAppRepos()
-    console.log('repos', repos)
     const filtered = repos.filter((repo) => repo.repositoryPath.toLowerCase() == repositoryPath)
     if (filtered && filtered[0]) {
       const token = await getAccessTokenByUser(filtered[0].user)
@@ -216,7 +215,7 @@ export const pushProjectToGithub = async (
         }
       })
     )
-    const repoPath = project.repositoryPath
+    const repoPath = project.repositoryPath.toLowerCase()
     const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
       where: {
         userId: user.id,
@@ -235,7 +234,10 @@ export const pushProjectToGithub = async (
       : await (async () => {
           await createGitHubApp()
           return getInstallationOctokit(
-            repos.find((repo) => repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git')
+            repos.find((repo) => {
+              repo.repositoryPath = repo.repositoryPath.toLowerCase()
+              return repo.repositoryPath === repoPath || repo.repositoryPath === repoPath + '.git'
+            })
           )
         })()
     if (!octoKit) return
@@ -257,7 +259,6 @@ export const pushProjectToGithub = async (
       } else throw err
     }
     const deploymentBranch = `${config.server.releaseName}-deployment`
-    console.log('deploymentBranch', deploymentBranch)
     if (reset) {
       const projectDirectory = path.resolve(appRootPath.path, `packages/projects/projects/${project.name}/`)
 
@@ -274,7 +275,6 @@ export const pushProjectToGithub = async (
       const gitCloner = useGit(projectLocalDirectory)
       await gitCloner.clone(repoPath)
       const git = useGit(projectDirectory)
-      console.log('commitSHA', commitSHA)
       if (commitSHA) git.checkout(commitSHA)
       await git.checkoutLocalBranch(deploymentBranch)
       await git.push('origin', deploymentBranch, ['-f'])

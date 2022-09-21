@@ -103,7 +103,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
     try {
       resetState(true)
       setBranchProcessing(true)
-      const branchResponse = await ProjectService.fetchProjectBranches(e.target.value)
+      const branchResponse = await ProjectService.fetchProjectBranches(e.target.value, source === 'url', existingProject)
       setBranchProcessing(false)
       if (branchResponse.error === 'invalidUrl') {
         setShowBranchSelector(false)
@@ -124,7 +124,6 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
       resetState(true, true)
       setSelectedBranch(e.target.value)
       setTagsProcessing(true)
-      console.log('selectedBranch', selectedBranch, e.target.value)
       const projectResponse = await ProjectService.fetchProjectTags(projectURL, e.target.value, source === 'url')
       setTagsProcessing(false)
       if (projectResponse.error === 'invalidUrl') {
@@ -171,9 +170,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   })
   
   useEffect(() => {
-    console.log('project drawer opened', inputProjectURL, existingProject)
     if (inputProjectURL && inputProjectURL.length > 0) {
-      console.log('Set project url and such')
       setProjectURL(inputProjectURL)
       handleChangeRepo({
         target: {
@@ -199,16 +196,6 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
             ]}
             onChange={handleChangeSource}
           />
-        )}
-
-        {existingProject && (
-            <Checkbox
-                className={styles.checkbox}
-                checked={selectedInviteIds.has(invite.id)}
-                onChange={() => {
-                  toggleSelection(invite.id)
-                }}
-            />
         )}
 
         {!existingProject && source === 'list' && repos && repos.length != 0 ? (
