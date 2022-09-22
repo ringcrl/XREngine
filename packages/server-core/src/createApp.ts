@@ -1,6 +1,7 @@
 import express, { errorHandler, json, rest, urlencoded } from '@feathersjs/express'
 import { feathers } from '@feathersjs/feathers'
-import socketio from '@feathersjs/socketio'
+// import socketio from '@feathersjs/socketio'
+import primus from '@feathersjs/primus'
 import * as k8s from '@kubernetes/client-node'
 import compress from 'compression'
 import cors from 'cors'
@@ -61,27 +62,27 @@ export const configureSocketIO =
     ]
     if (!instanceserver) origin.push('https://localhost:3001')
     app.configure(
-      socketio(
+      primus(
         {
-          serveClient: false,
-          cors: {
-            origin,
-            methods: ['OPTIONS', 'GET', 'POST'],
-            allowedHeaders: '*',
-            preflightContinue: instanceserver,
-            credentials: true
-          }
-        },
-        (io) => {
-          io.use((socket, next) => {
-            ;(socket as any).feathers.socketQuery = socket.handshake.query
-            ;(socket as any).socketQuery = socket.handshake.query
-            onSocket(app, socket as any)
-            next()
-          })
+          transformer: 'ws',
+          // serveClient: false,
+          origin,
+          methods: ['OPTIONS', 'GET', 'POST'],
+          credentials: true,
+          headers: true
         }
+        // (primus) => {
+        //   // primus.use((socket, next) => {
+        //   //   ;(socket as any).feathers.socketQuery = socket.handshake.query
+        //   //   ;(socket as any).socketQuery = socket.handshake.query
+        //   //   onSocket(app, socket as any)
+        //   //   next()
+        //   // })
+        //   console.log(primus)
+        // }
       )
     )
+    // app.configure(primus({ transformer: 'ws' }))
     return app
   }
 
