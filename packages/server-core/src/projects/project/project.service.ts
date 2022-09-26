@@ -41,7 +41,8 @@ declare module '@xrengine/common/declarations' {
     'project-invalidate': any
     'project-github-push': any
     'project-branches': any
-    'project-tags': any
+    'project-tags': any,
+    'project-destination-check': any
   }
   interface Models {
     project: ReturnType<typeof createModel>
@@ -141,6 +142,66 @@ export default (app: Application): void => {
     }
   })
 
+  app.use('project-destination-check', {
+    get: async (url: string, params?: Params): Promise<any> => {
+      const publicURL = params.query.publicURL
+      const projectName = params.query.projectName
+      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
+        where: {
+          userId: params!.user.id,
+          type: 'github'
+        }
+      })
+      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
+      url = url.toLowerCase()
+
+      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
+      if (!githubPathRegexExec) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
+      const split = githubPathRegexExec[1].split('/')
+      if (!split[0] || !split[1]) return {
+        error: 'invalidUrl',
+        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+      }
+      const owner = split[0]
+      const repo = split[1].replace('.git', '')
+      const repos = await getGitHubAppRepos()
+      const octoKit = publicURL || githubIdentityProvider
+          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
+          : await (async () => {
+            await createGitHubApp()
+            return getInstallationOctokit(
+                repos.find((repo) => {
+                  repo.repositoryPath = repo.repositoryPath.toLowerCase()
+                  return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
+                })            )
+          })()
+
+      try {
+        const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
+        return ({ destinationValid: repoResponse.data.permissions.push || repoResponse.data.permissions.admin })
+      } catch(err) {
+        logger.error('error checking destination URL %o', err)
+        if (err.status === 404) return {
+          error: 'invalidUrl',
+          text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+        }
+        throw err
+      }
+    }
+  })
+
+  app.service('project-destination-check').hooks({
+    before: {
+      get: [
+        authenticate(),
+        iff(isProvider('external'), verifyScope('projects', 'read') as any)
+      ]
+    }
+  })
+
   app.use('project-branches', {
     get: async (url: string, params?: Params): Promise<any> => {
       const publicURL = params.query.publicURL
@@ -182,7 +243,7 @@ export default (app: Application): void => {
       try {
         const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
         const content = JSON.parse(Buffer.from(blobResponse.data.content, 'base64').toString())
-        console.log('repo package.json', content)
+        console.log('repo package.json', content, content.name)
         if (content.name.toLowerCase() !== projectName.toLowerCase())
           return {
           error: 'invalidRepoProjectName',

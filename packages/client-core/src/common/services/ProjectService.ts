@@ -201,6 +201,32 @@ export const ProjectService = {
       logger.error('Error with fetching branches for a project', err)
       throw err
     }
+  },
+
+  checkDestinationURLValid: async(url, publicURL) => {
+    try {
+      return API.instance.client.service('project-destination-check').get(url, {
+        query: {
+          publicURL
+        }
+      })
+    } catch(err) {
+      logger.error('Error with checking destination for a project', err)
+      throw err
+    }
+  },
+
+  checkSourceMatchesDestination: async (url: string) => {
+    try {
+      return API.instance.client.service('check-project-source-destination-match').get(url, {
+        query: {
+
+        }
+      })
+    } catch(err) {
+      logger.error('Error with checking source matches destination', err)
+      throw err
+    }
   }
 }
 

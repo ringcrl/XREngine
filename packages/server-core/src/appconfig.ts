@@ -267,6 +267,7 @@ const authentication = {
     }
   }
 }
+console.log('auth defaults', authentication.oauth.defaults)
 
 /**
  * AWS

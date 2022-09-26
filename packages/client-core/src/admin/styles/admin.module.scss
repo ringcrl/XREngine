@@ -706,3 +706,11 @@
 .drawerSubHeader {
   font-size: 1.5em;
 }
+
+.validContainer {
+  display: flex;
+
+  & > :first-child {
+    margin-right: 5px;
+  }
+}

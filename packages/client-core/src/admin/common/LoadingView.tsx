@@ -14,16 +14,18 @@ interface Props {
   sx?: SxProps<Theme>
 }
 
-const LoadingView = ({ className, title, variant, titleColor, sx }: Props) => {
+const LoadingView = ({ className, title, variant, titleColor, sx, fullHeight=true }: Props) => {
   if (!variant) {
     variant = 'h6'
   }
 
-  const content = (
+  console.log('fullHeight', fullHeight)
+
+  return (
     <Box
       className={className}
       sx={{
-        height: '100%',
+        height: fullHeight ? '100%' : '100px',
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -40,8 +42,6 @@ const LoadingView = ({ className, title, variant, titleColor, sx }: Props) => {
       )}
     </Box>
   )
-
-  return content
 }
 
 export default LoadingView
