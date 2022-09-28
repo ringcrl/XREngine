@@ -247,18 +247,20 @@ export class Project extends Service {
    */
   // @ts-ignore
   async update(
-    data: { url: string; name?: string; needsRebuild?: boolean; reset?: boolean; commitSHA?: string },
+    data: { sourceURL: string; destinationURL: string; name?: string; needsRebuild?: boolean; reset?: boolean; commitSHA?: string },
     placeholder?: null,
     params?: UserParams
   ) {
-    if (data.url === 'default-project') {
+    console.log('project update data', data)
+    if (data.sourceURL === 'default-project') {
       copyDefaultProject()
       await uploadLocalProjectToProvider('default-project')
       return
     }
 
-    const urlParts = data.url.split('/')
+    const urlParts = data.sourceURL.split('/')
     let projectName = data.name || urlParts.pop()
+    console.log('projectName', projectName)
     if (!projectName) throw new Error('Git repo must be plain URL')
     if (projectName.substring(projectName.length - 4) === '.git') projectName = projectName.slice(0, -4)
     if (projectName.substring(projectName.length - 1) === '/') projectName = projectName.slice(0, -1)
@@ -272,11 +274,11 @@ export class Project extends Service {
       deleteFolderRecursive(projectDirectory)
     }
 
-    let repoPath = await getAuthenticatedRepo(data.url)
-    if (!repoPath) repoPath = data.url //public repo
+    let repoPath = await getAuthenticatedRepo(data.sourceURL)
+    if (!repoPath) repoPath = data.sourceURL //public repo
 
     const gitCloner = useGit(projectLocalDirectory)
-    await gitCloner.clone(repoPath)
+    await gitCloner.clone(repoPath, projectDirectory)
     const git = useGit(projectDirectory)
     const branchName = `${config.server.releaseName}-deployment`
     try {
@@ -305,7 +307,7 @@ export class Project extends Service {
           {
             thumbnail: projectConfig.thumbnail,
             name: projectName,
-            repositoryPath: data.url,
+            repositoryPath: data.destinationURL || data.sourceURL,
             needsRebuild: data.needsRebuild ? data.needsRebuild : true
           },
           params || {}
@@ -321,7 +323,12 @@ export class Project extends Service {
       })
     }
 
-    if (data.reset) await pushProjectToGithub(this.app, returned, params!.user!, true, data.commitSHA)
+    if (data.reset) {
+      let repoPath = await getAuthenticatedRepo(data.destinationURL)
+      if (!repoPath) repoPath = data.destinationURL //public repo
+      await git.addRemote('destination', repoPath)
+      await git.push('destination', branchName, ['-f'])
+    }
     // run project install script
     if (projectConfig.onEvent) {
       await onProjectEvent(this.app, projectName, projectConfig.onEvent, 'onInstall')

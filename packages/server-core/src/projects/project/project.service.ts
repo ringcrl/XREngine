@@ -17,8 +17,7 @@ import verifyScope from '../../hooks/verify-scope'
 import { getStorageProvider } from '../../media/storageprovider/storageprovider'
 import { UserParams } from '../../user/user/user.class'
 import {
-  createGitHubApp, getAppOctokit,
-  getAuthenticatedRepo, getGitHubAppRepos, getInstallationOctokit,
+  getOctokitForChecking,
   pushProjectToGithub
 } from '../githubapp/githubapp-helper'
 import {checkBuilderService, getEnginePackageJson, retriggerBuilderService} from './project-helper'
@@ -43,6 +42,7 @@ declare module '@xrengine/common/declarations' {
     'project-branches': any
     'project-tags': any,
     'project-destination-check': any
+    'project-check-source-destination-match'
   }
   interface Models {
     project: ReturnType<typeof createModel>
@@ -121,6 +121,82 @@ export default (app: Application): void => {
     }
   })
 
+  app.use('project-check-source-destination-match', {
+    find: async(params?: Params): Promise<any> => {
+      const { sourceURL, destinationURL, sourceIsPublicURL, destinationIsPublicURL, existingProject }: { sourceURL: string, destinationURL: string, sourceIsPublicURL: boolean, destinationIsPublicURL: boolean, existingProject?: boolean } = params.query
+      const { owner: destinationOwner, repo: destinationRepo, octoKit: destinationOctoKit } = await getOctokitForChecking(app, destinationURL, {...params, query: {isPublicURL: destinationIsPublicURL}} as Params)
+      const { owner: sourceOwner, repo: sourceRepo, octoKit: sourceOctoKit } = await getOctokitForChecking(app, sourceURL, {...params, query: {isPublicURL: sourceIsPublicURL}} as Params)
+
+      const [sourceBlobResponse, destinationBlobResponse] = await Promise.all([
+          new Promise(async (resolve, reject) => {
+            try {
+              console.log('Getting source package.json')
+              const sourcePackage = await sourceOctoKit.request(`GET /repos/${sourceOwner}/${sourceRepo}/contents/package.json`)
+              console.log('sourcePackage', sourcePackage)
+              resolve(sourcePackage)
+            } catch(err) {
+              logger.error(err)
+              if (err.status === 404) {
+                resolve( {
+                  error: 'sourcePackageMissing',
+                  text: 'There is no package.json in the source repo'
+                })
+              } else reject(err)
+            }
+        }),
+        new Promise(async (resolve, reject) => {
+          try {
+            console.log('getting destination package.json')
+            const destinationPackage = await destinationOctoKit.request(`GET /repos/${destinationOwner}/${destinationRepo}/contents/package.json`)
+            console.log('destinationPackage', destinationPackage)
+            resolve(destinationPackage)
+          } catch(err) {
+            console.log('destination package fetch error', err)
+            logger.error(err)
+            if (err.status === 404) {
+              resolve({
+                error: 'destinationPackageMissing',
+                text: 'There is no package.json in the source repo'
+              })
+            } else reject(err)
+          }
+        }),
+      ])
+      if (sourceBlobResponse.error) return sourceBlobResponse
+      const sourceContent = JSON.parse(Buffer.from(sourceBlobResponse.data.content, 'base64').toString())
+      if (!existingProject) {
+        const projectExists = await app.service('project').find({
+          name: sourceContent.name
+        })
+        if (projectExists.total > 0) return {
+          sourceProjectMatchesDestination: false,
+          error: 'projectExists',
+          text: 'The source project is already installed'
+        }
+      }
+      if (destinationBlobResponse.error && destinationBlobResponse.error !== 'destinationPackageMissing') return destinationBlobResponse
+      if (destinationBlobResponse.error === 'destinationPackageMissing') return { sourceProjectMatchesDestination: true, projectName: sourceContent.name }
+      const destinationContent = JSON.parse(Buffer.from(destinationBlobResponse.data.content, 'base64').toString())
+      console.log('source repo package.json', sourceContent, sourceContent.name)
+      console.log('destination repo package.json', destinationContent, destinationContent.name)
+      if (sourceContent.name.toLowerCase() !== destinationContent.name.toLowerCase())
+        return {
+          error: 'invalidRepoProjectName',
+          text: 'The repository you are attempting to update from contains a different project than the one you are updating'
+        }
+      else return { sourceProjectMatchesDestination: true, projectName: sourceContent.name }
+    }
+  })
+
+  app.service('project-check-source-destination-match').hooks({
+    before: {
+      find: [
+        authenticate(),
+        iff(isProvider('external'), verifyScope('projects', 'read') as any)
+      ]
+    }
+  })
+
   app.use('project-github-push', {
     patch: async (id: Id, data: any, params?: UserParams): Promise<any> => {
       const project = await app.service('project').Model.findOne({
@@ -144,44 +220,19 @@ export default (app: Application): void => {
 
   app.use('project-destination-check', {
     get: async (url: string, params?: Params): Promise<any> => {
-      const publicURL = params.query.publicURL
-      const projectName = params.query.projectName
-      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
-        where: {
-          userId: params!.user.id,
-          type: 'github'
-        }
-      })
-      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
-      url = url.toLowerCase()
-
-      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
-      if (!githubPathRegexExec) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const split = githubPathRegexExec[1].split('/')
-      if (!split[0] || !split[1]) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const owner = split[0]
-      const repo = split[1].replace('.git', '')
-      const repos = await getGitHubAppRepos()
-      const octoKit = publicURL || githubIdentityProvider
-          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
-          : await (async () => {
-            await createGitHubApp()
-            return getInstallationOctokit(
-                repos.find((repo) => {
-                  repo.repositoryPath = repo.repositoryPath.toLowerCase()
-                  return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
-                })            )
-          })()
+      const isPublicURL = params.query.isPublicURL
+      const octokitResponse = await getOctokitForChecking(app, url, params!)
+      if (octokitResponse.error) return octokitResponse
+      const { owner, repo, octoKit } = octokitResponse
 
       try {
         const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
-        return ({ destinationValid: repoResponse.data.permissions.push || repoResponse.data.permissions.admin })
+        const returned = { destinationValid: isPublicURL ? (repoResponse.data.permissions.push || repoResponse.data.permissions.admin) : true }
+        if (!returned.destinationValid) {
+          returned.error = 'invalidPermission'
+          returned.text = 'You do not have personal push or admin access to this repo. If the GitHub app associated with this deployment is installed in this repo, please select "Installed GitHub app" and then select it from the list that appears.'
+        }
+        return returned
       } catch(err) {
         logger.error('error checking destination URL %o', err)
         if (err.status === 404) return {
@@ -204,51 +255,11 @@ export default (app: Application): void => {
 
   app.use('project-branches', {
     get: async (url: string, params?: Params): Promise<any> => {
-      const publicURL = params.query.publicURL
-      const existingProject = params.query.existingProject
-      const projectName = params.query.projectName
-      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
-        where: {
-          userId: params!.user.id,
-          type: 'github'
-        }
-      })
-      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
-      url = url.toLowerCase()
-
-      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
-      if (!githubPathRegexExec) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const split = githubPathRegexExec[1].split('/')
-      if (!split[0] || !split[1]) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const owner = split[0]
-      const repo = split[1].replace('.git', '')
-      const repos = await getGitHubAppRepos()
-      const octoKit = publicURL || githubIdentityProvider
-          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
-          : await (async () => {
-            await createGitHubApp()
-            return getInstallationOctokit(
-              repos.find((repo) => {
-                repo.repositoryPath = repo.repositoryPath.toLowerCase()
-                return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
-              })            )
-          })()
+      const octokitResponse = await getOctokitForChecking(app, url, params!)
+      if (octokitResponse.error) return octokitResponse
+      const { owner, repo, octoKit } = octokitResponse
 
       try {
-        const blobResponse = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
-        const content = JSON.parse(Buffer.from(blobResponse.data.content, 'base64').toString())
-        console.log('repo package.json', content, content.name)
-        if (content.name.toLowerCase() !== projectName.toLowerCase())
-          return {
-          error: 'invalidRepoProjectName',
-            text: 'The repository you are attempting to update from contains a different project than the one you are updating'
-          }
         const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
         const returnedBranches = [{ name: repoResponse.data.default_branch, isMain: true }]
         const deploymentBranch = `${config.server.releaseName}-deployment`
@@ -284,40 +295,10 @@ export default (app: Application): void => {
 
   app.use('project-tags', {
     get: async (url: string, params?: Params): Promise<any> => {
-      const publicURL = params.query.publicURL
-      const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
-        where: {
-          userId: params!.user.id,
-          type: 'github'
-        }
-      })
-      if (publicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
-      url = url.toLowerCase()
+      const octokitResponse = await getOctokitForChecking(app, url, params!)
+      if (octokitResponse.error) return octokitResponse
+      const { owner, repo, octoKit } = octokitResponse
 
-      const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
-      if (!githubPathRegexExec) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const split = githubPathRegexExec[1].split('/')
-      if (!split[0] || !split[1]) return {
-        error: 'invalidUrl',
-        text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
-      }
-      const owner = split[0]
-      const repo = split[1].replace('.git', '')
-      const repos = await getGitHubAppRepos()
-      const octoKit = publicURL || githubIdentityProvider
-          ? new Octokit({ auth: githubIdentityProvider.oauthToken })
-          : await (async () => {
-            await createGitHubApp()
-            return getInstallationOctokit(
-                repos.find((repo) => {
-                  repo.repositoryPath = repo.repositoryPath.toLowerCase()
-                  return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
-                })
-            )
-          })()
       try {
         let headIsTagged = false
         const enginePackageJson = getEnginePackageJson()
@@ -368,6 +349,10 @@ export default (app: Application): void => {
         if (err.status === 404) return {
           error: 'invalidUrl',
           text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+        }
+        else if (err.status === 409) return {
+          error: 'repoEmpty',
+          text: 'This repo is empty'
         }
         throw err
       }

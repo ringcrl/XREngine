@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { GithubAppInterface } from '@xrengine/common/src/interfaces/GithubAppInterface'
 
 import Cancel from '@mui/icons-material/Cancel'
-import CheckBox from '@mui/icons-material/CheckBox'
+import CheckCircle from '@mui/icons-material/CheckCircle'
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import Button from '@mui/material/Button'
 import Container from '@mui/material/Container'
@@ -51,16 +51,18 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   const [tagData, setTagData] = useState([])
   const [selectedBranch, setSelectedBranch] = useState('')
   const [selectedSHA, setSelectedSHA] = useState('')
+  const [sourceVsDestinationProcessing, setSourceVsDestinationProcessing] = useState(false)
+  const [sourceVsDestinationError, setSourceVsDestinationError] = useState('')
+  const [sourceProjectMatchesDestination, setSourceProjectMatchesDestination] = useState(false)
+  const [projectName, setProjectName] = useState('')
 
   const selfUser = useAuthState().user
 
   const handleSubmit = async () => {
     try {
-      if (source) {
+      if (sourceURL) {
         setProcessing(true)
-        const urlParts = source.split('/')
-        let projectName = urlParts.pop()
-        await ProjectService.uploadProject(source, projectName, !existingProject, selectedSHA)
+        await ProjectService.uploadProject(sourceURL, destinationURL, projectName, !existingProject, selectedSHA)
         setProcessing(false)
         handleClose()
       } else {
@@ -88,13 +90,15 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
     setBranchError('')
     setTagError('')
     setSourceValid(false)
+    setSourceProjectMatchesDestination(false)
   }
 
-  const resetDestinationState = ({ resetDestinationURL=true}) => {
+  const resetDestinationState = ({ resetDestinationURL=true, resetDestinationType=true}) => {
     if (resetDestinationURL) setDestinationURL('')
-    setDestinationType('url')
+    if (resetDestinationType) setDestinationType('url')
     setDestinationValid(false)
     setDestinationError('')
+    setSourceProjectMatchesDestination(false)
   }
 
   const handleChangeDestinationType = (e) => {
@@ -120,18 +124,18 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   }
 
   const handleClose = () => {
-    resetSourceState({ resetSourceURL: true})
-    resetDestinationState({})
+    resetSourceState({ resetSourceURL: true, resetSourceType: true})
+    resetDestinationState({resetDestinationType: true})
     onClose()
   }
 
   const handleChangeSourceRepo = async (e) => {
     try {
-      resetSourceState({resetSourceURL: false })
+      resetSourceState({resetSourceURL: false, resetSourceType: false })
       setBranchProcessing(true)
       const branchResponse = await ProjectService.fetchProjectBranches(e.target.value, sourceType === 'url', existingProject)
       setBranchProcessing(false)
-      if (branchResponse.error === 'invalidUrl') {
+      if (branchResponse.error) {
         setShowBranchSelector(false)
         setBranchError(branchResponse.text)
       } else {
@@ -147,16 +151,20 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
 
   const handleChangeDestinationRepo = async (e) => {
     try {
-      resetDestinationState({ resetDestinationURL: false })
+      resetDestinationState({ resetDestinationURL: false, resetDestinationType: false })
       setDestinationValid(false)
       setDestinationProcessing(true)
       const destinationResponse = await ProjectService.checkDestinationURLValid(e.target.value, destinationType === 'url')
       setDestinationProcessing(false)
-      if (destinationResponse.error === 'invalidUrl') {
+      if (destinationResponse.error) {
         setDestinationValid(false)
         setDestinationError(destinationResponse.text)
       } else {
-        setDestinationValid(destinationResponse.destinationValid)
+        if (destinationResponse.destinationValid) setDestinationValid(destinationResponse.destinationValid)
+        else {
+          setDestinationValid(false)
+          setDestinationError('Destination URL is not valid')
+        }
       }
     } catch(err) {
       setDestinationProcessing(false)
@@ -172,7 +180,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
       setTagsProcessing(true)
       const projectResponse = await ProjectService.fetchProjectTags(sourceURL, e.target.value, sourceType === 'url')
       setTagsProcessing(false)
-      if (projectResponse.error === 'invalidUrl') {
+      if (projectResponse.error) {
         setShowTagSelector(false)
         setTagError(projectResponse.text)
       } else {
@@ -228,8 +236,26 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
 
   useEffect(() => {
     if (destinationValid && sourceValid) {
-      const sourceProjectMatchesDestination = ProjectService.checkSourceMatchesDestination()
-      setSubmitDisabled(!sourceProjectMatchesDestination)
+      setSourceVsDestinationProcessing(true)
+      ProjectService.checkSourceMatchesDestination({ sourceURL, destinationURL, sourceIsPublicURL: sourceType === 'url', destinationIsPublicURL: destinationType === 'url'})
+          .then(res => {
+            setSourceVsDestinationProcessing(false)
+            if (res.error) {
+              setProjectName('')
+              setSubmitDisabled(true)
+              setSourceProjectMatchesDestination(false)
+              setSourceVsDestinationError(res.text)
+            } else {
+              setProjectName(res.projectName)
+              setSubmitDisabled(!res.sourceProjectMatchesDestination)
+              setSourceProjectMatchesDestination(res.sourceProjectMatchesDestination)
+            }
+          })
+    } else {
+      setSourceVsDestinationProcessing(false)
+      setProjectName('')
+      setSubmitDisabled(true)
+      setSourceProjectMatchesDestination(false)
     }
   }, [destinationValid, sourceValid])
 
@@ -367,16 +393,37 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
 
         {processing && <LoadingView title={t('admin:components.project.processing')} variant="body1" fullHeight={false} />}
 
-        <div className={styles.validContainer}>
-          {destinationValid && <CheckBox />}
+        {sourceVsDestinationProcessing && <LoadingView title={t('admin:components.project.sourceVsDestinationProcessing')} variant="body1" fullHeight={false} />}
+        {sourceVsDestinationError.length > 0 && <div className={styles.errorText}>{sourceVsDestinationError}</div>}
+
+        <div className={classNames({
+          [styles.validContainer]: true,
+          [styles.valid]: destinationValid,
+          [styles.invalid]: !destinationValid
+        })}>
+          {destinationValid && <CheckCircle />}
           {!destinationValid && <Cancel />}
           Destination URL valid and accessible?
         </div>
 
-        <div className={styles.validContainer}>
-          {sourceValid && <CheckBox />}
+        <div className={classNames({
+          [styles.validContainer]: true,
+          [styles.valid]: sourceValid,
+          [styles.invalid]: !sourceValid
+        })}>
+          {sourceValid && <CheckCircle />}
           {!sourceValid && <Cancel />}
           Source URL valid and accessible?
+        </div>
+
+        <div className={classNames({
+          [styles.validContainer]: true,
+          [styles.valid]: sourceProjectMatchesDestination,
+          [styles.invalid]: !sourceProjectMatchesDestination
+        })}>
+          {sourceProjectMatchesDestination && <CheckCircle />}
+          {!sourceProjectMatchesDestination && <Cancel />}
+          Source Project matches Destination, or destination empty?
         </div>
 
         <DialogActions>

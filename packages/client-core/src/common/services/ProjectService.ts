@@ -60,8 +60,8 @@ export const ProjectService = {
   },
 
   // restricted to admin scope
-  uploadProject: async (url: string, name?: string, reset?: boolean, commitSHA?: string) => {
-    const result = await API.instance.client.service('project').update({ url, name, reset, commitSHA })
+  uploadProject: async (sourceURL: string, destinationURL: string, name?: string, reset?: boolean, commitSHA?: string) => {
+    const result = await API.instance.client.service('project').update({ sourceURL, destinationURL, name, reset, commitSHA })
     logger.info({ result }, 'Upload project result')
     dispatchAction(ProjectAction.postProject({}))
     await API.instance.client.service('project-invalidate').patch({ projectName: name })
@@ -175,11 +175,11 @@ export const ProjectService = {
     }, [])
   },
 
-  fetchProjectBranches: async (url, publicURL=true, existingProject=true) => {
+  fetchProjectBranches: async (url: string, isPublicURL=true, existingProject=true) => {
     try {
       return API.instance.client.service('project-branches').get(url, {
         query: {
-          publicURL,
+          isPublicURL,
           existingProject
         }
       })
@@ -189,12 +189,12 @@ export const ProjectService = {
     }
   },
 
-  fetchProjectTags: async (url, branchName, publicURL=true) => {
+  fetchProjectTags: async (url: string, branchName: string, isPublicURL=true) => {
     try {
       return API.instance.client.service('project-tags').get(url, {
         query: {
           branchName: branchName,
-          publicURL
+          isPublicURL
         }
       })
     } catch(err) {
@@ -203,11 +203,11 @@ export const ProjectService = {
     }
   },
 
-  checkDestinationURLValid: async(url, publicURL) => {
+  checkDestinationURLValid: async(url: string, isPublicURL: boolean) => {
     try {
       return API.instance.client.service('project-destination-check').get(url, {
         query: {
-          publicURL
+          isPublicURL
         }
       })
     } catch(err) {
@@ -216,11 +216,14 @@ export const ProjectService = {
     }
   },
 
-  checkSourceMatchesDestination: async (url: string) => {
+  checkSourceMatchesDestination: async ({ sourceURL, destinationURL, sourceIsPublicURL=true, destinationIsPublicURL=true  }) => {
     try {
-      return API.instance.client.service('check-project-source-destination-match').get(url, {
+      return API.instance.client.service('project-check-source-destination-match').find({
         query: {
-
+          sourceURL,
+          destinationURL,
+          sourceIsPublicURL,
+          destinationIsPublicURL
         }
       })
     } catch(err) {

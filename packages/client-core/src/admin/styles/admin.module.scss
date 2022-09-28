@@ -710,7 +710,19 @@
 .validContainer {
   display: flex;
 
+  &.valid > svg {
+    color: var(--green)
+  }
+
+  &.invalid > svg {
+    color: var(--red);
+  }
+
   & > :first-child {
     margin-right: 5px;
   }
+}
+
+.errorText {
+  color: var(--red);
 }

@@ -1,4 +1,4 @@
-import { BadRequest } from '@feathersjs/errors'
+import {BadRequest, Forbidden} from '@feathersjs/errors'
 import { App } from '@octokit/app'
 import { createAppAuth } from '@octokit/auth-app'
 import { Octokit } from '@octokit/rest'
@@ -26,6 +26,7 @@ import { refreshAppConfig } from '../../updateAppConfig'
 import { deleteFolderRecursive, writeFileSyncRecursive } from '../../util/fsHelperFunctions'
 import { useGit } from '../../util/gitHelperFunctions'
 import error from "@xrengine/editor/src/components/Error";
+import {Params} from "@feathersjs/feathers";
 
 let app, appOctokit
 
@@ -242,7 +243,6 @@ export const pushProjectToGithub = async (
         })()
     if (!octoKit) return
     try {
-      console.log('Checking repo exists')
       await octoKit.rest.repos.get({
         owner,
         repo
@@ -261,19 +261,6 @@ export const pushProjectToGithub = async (
     const deploymentBranch = `${config.server.releaseName}-deployment`
     if (reset) {
       const projectDirectory = path.resolve(appRootPath.path, `packages/projects/projects/${project.name}/`)
-
-      // if project exists already, remove it and re-clone it
-      if (fs.existsSync(projectDirectory)) {
-        // if (isDev) throw new Error('Cannot create project - already exists')
-        deleteFolderRecursive(projectDirectory)
-      }
-
-      let repoPath = await getAuthenticatedRepo(project.repositoryPath)
-      if (!repoPath) repoPath = project.repositoryPath
-
-      const projectLocalDirectory = path.resolve(appRootPath.path, `packages/projects/projects/`)
-      const gitCloner = useGit(projectLocalDirectory)
-      await gitCloner.clone(repoPath)
       const git = useGit(projectDirectory)
       if (commitSHA) git.checkout(commitSHA)
       await git.checkoutLocalBranch(deploymentBranch)
@@ -379,6 +366,57 @@ export const getCurrentCommit = async (octo: Octokit, org: string, repo: string,
     treeSha: commitData.tree.sha
   }
 }
+
+export const getGithubOwnerRepo = (url: string) => {
+  url = url.toLowerCase()
+
+  const githubPathRegexExec = GITHUB_URL_REGEX.exec(url)
+  if (!githubPathRegexExec) return {
+    error: 'invalidUrl',
+    text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+  }
+  const split = githubPathRegexExec[1].split('/')
+  if (!split[0] || !split[1]) return {
+    error: 'invalidUrl',
+    text: 'Project URL is not a valid GitHub URL, or the GitHub repo is private'
+  }
+  const owner = split[0]
+  const repo = split[1].replace('.git', '')
+  return {
+    owner,
+    repo
+  }
+}
+
+export const getOctokitForChecking = async (app: Application, url: string, params: Params) => {
+  url = url.toLowerCase()
+  const isPublicURL = params.query.isPublicURL
+  const githubIdentityProvider = await app.service('identity-provider').Model.findOne({
+    where: {
+      userId: params!.user.id,
+      type: 'github'
+    }
+  })
+  if (isPublicURL && !githubIdentityProvider) throw new Forbidden('You must have a connected GitHub account to access public repos')
+  const { owner, repo } = getGithubOwnerRepo(url)
+  const repos = await getGitHubAppRepos()
+  const octoKit = (isPublicURL && githubIdentityProvider)
+      ? new Octokit({ auth: githubIdentityProvider.oauthToken })
+      : await (async () => {
+        await createGitHubApp()
+        return getInstallationOctokit(
+            repos.find((repo) => {
+              repo.repositoryPath = repo.repositoryPath.toLowerCase()
+              return repo.repositoryPath === url || repo.repositoryPath === url + '.git'
+            }))
+      })()
+  return {
+    owner,
+    repo,
+    octoKit
+  }
+}
+
 
 const createBlobForFile = (octo: Octokit, org: string, repo: string) => async (filePath: string) => {
   const encoding = isBase64Encoded(filePath) ? 'base64' : 'utf-8'
