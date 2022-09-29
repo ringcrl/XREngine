@@ -146,13 +146,10 @@ export default (app: Application): void => {
         }),
         new Promise(async (resolve, reject) => {
           try {
-            console.log('getting destination package.json')
             const destinationPackage = await destinationOctoKit.request(`GET /repos/${destinationOwner}/${destinationRepo}/contents/package.json`)
-            console.log('destinationPackage', destinationPackage)
             resolve(destinationPackage)
           } catch(err) {
-            console.log('destination package fetch error', err)
-            logger.error(err)
+            logger.error('destination package fetch error', err)
             if (err.status === 404) {
               resolve({
                 error: 'destinationPackageMissing',
@@ -177,8 +174,6 @@ export default (app: Application): void => {
       if (destinationBlobResponse.error && destinationBlobResponse.error !== 'destinationPackageMissing') return destinationBlobResponse
       if (destinationBlobResponse.error === 'destinationPackageMissing') return { sourceProjectMatchesDestination: true, projectName: sourceContent.name }
       const destinationContent = JSON.parse(Buffer.from(destinationBlobResponse.data.content, 'base64').toString())
-      console.log('source repo package.json', sourceContent, sourceContent.name)
-      console.log('destination repo package.json', destinationContent, destinationContent.name)
       if (sourceContent.name.toLowerCase() !== destinationContent.name.toLowerCase())
         return {
           error: 'invalidRepoProjectName',
@@ -221,16 +216,45 @@ export default (app: Application): void => {
   app.use('project-destination-check', {
     get: async (url: string, params?: Params): Promise<any> => {
       const isPublicURL = params.query.isPublicURL
+      const inputProjectURL = params.query.inputProjectURL
       const octokitResponse = await getOctokitForChecking(app, url, params!)
       if (octokitResponse.error) return octokitResponse
       const { owner, repo, octoKit } = octokitResponse
 
       try {
         const repoResponse = await octoKit.request(`GET /repos/${owner}/${repo}`)
+        let destinationPackage
+        try {
+          destinationPackage = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
+        } catch(err) {
+          logger.error('destination package fetch error', err)
+          if (err.status !== 404) throw err
+        }
         const returned = { destinationValid: isPublicURL ? (repoResponse.data.permissions.push || repoResponse.data.permissions.admin) : true }
+        if (destinationPackage)
+          returned.projectName = JSON.parse(Buffer.from(destinationPackage.data.content, 'base64').toString()).name
+        else
+          returned.repoEmpty = true
         if (!returned.destinationValid) {
           returned.error = 'invalidPermission'
           returned.text = 'You do not have personal push or admin access to this repo. If the GitHub app associated with this deployment is installed in this repo, please select "Installed GitHub app" and then select it from the list that appears.'
+        }
+
+        if (inputProjectURL?.length > 0) {
+          const projectOctokitResponse = await getOctokitForChecking(app, inputProjectURL, params!)
+          const { owner: existingOwner, repo: existingRepo, octoKit: projectOctoKit } = projectOctokitResponse
+          let existingProjectPackage
+          try {
+            existingProjectPackage = await projectOctoKit.request(`GET /repos/${existingOwner}/${existingRepo}/contents/package.json`)
+            const existingProjectName = JSON.parse(Buffer.from(existingProjectPackage.data.content, 'base64').toString()).name
+            if (!returned.repoEmpty && (existingProjectName !== returned.projectName)) {
+              returned.error = 'mismatchedProjects'
+              returned.text = `The new destination repo contains project '${returned.projectName}', which is different than the current project '${existingProjectName}'`
+            }
+          } catch(err) {
+            logger.error('destination package fetch error', err)
+            if (err.status !== 404) throw err
+          }
         }
         return returned
       } catch(err) {
@@ -322,6 +346,7 @@ export default (app: Application): void => {
             })
             const content = JSON.parse(Buffer.from(blobResponse.data.content, 'base64').toString())
             resolve({
+              projectName: content.name,
               projectVersion: tag.name,
               engineVersion: content.etherealEngine?.version,
               commitSHA: tag.commit.sha,
@@ -337,6 +362,7 @@ export default (app: Application): void => {
           const headContent = await octoKit.request(`GET /repos/${owner}/${repo}/contents/package.json`)
           const content = JSON.parse(Buffer.from(headContent.data.content, 'base64').toString())
           tagDetails.unshift({
+            projectName: content.name,
             projectVersion: '{Latest commit}',
             engineVersion: content.etherealEngine?.version,
             commitSHA: headResponse.data[0].sha,

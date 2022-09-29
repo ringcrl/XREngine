@@ -175,12 +175,11 @@ export const ProjectService = {
     }, [])
   },
 
-  fetchProjectBranches: async (url: string, isPublicURL=true, existingProject=true) => {
+  fetchProjectBranches: async (url: string, isPublicURL=true) => {
     try {
       return API.instance.client.service('project-branches').get(url, {
         query: {
-          isPublicURL,
-          existingProject
+          isPublicURL
         }
       })
     } catch(err) {
@@ -203,11 +202,12 @@ export const ProjectService = {
     }
   },
 
-  checkDestinationURLValid: async(url: string, isPublicURL: boolean) => {
+  checkDestinationURLValid: async({ url, isPublicURL, inputProjectURL }: { url: string, isPublicURL: boolean, inputProjectURL?: string }) => {
     try {
       return API.instance.client.service('project-destination-check').get(url, {
         query: {
-          isPublicURL
+          isPublicURL,
+          inputProjectURL
         }
       })
     } catch(err) {

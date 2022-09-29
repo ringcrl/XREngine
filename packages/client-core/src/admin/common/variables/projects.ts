@@ -13,7 +13,6 @@ export const projectsColumns: ProjectColumn[] = [
   { id: 'projectPermissions', label: 'User Access', minWidth: 65, align: 'center' },
   { id: 'invalidate', label: 'Invalidate Cache', minWidth: 65, align: 'center' },
   { id: 'view', label: 'View Project Files', minWidth: 65, align: 'center' },
-  { id: 'reset', label: 'Reset', minWidth: 65, align: 'center' },
   {
     id: 'action',
     label: 'Remove',

@@ -171,7 +171,14 @@
       "branchProcessing": "Fetching branches of project",
       "tagsProcessing": "Fetching Tagged Versions of project",
       "mismatchedProjectWarning": "This version of this project does not match the installed version of Ethereal Engine. There may be compilation or runtime errors if this project is installed.",
-      "needsGithubProvider": "You must connect your account with GitHub in order to add projects from public repos"
+      "needsGithubProvider": "You must connect your account with GitHub in order to add projects from public repos",
+      "sourceProjectName": "Project in source repo",
+      "destinationProjectName": "Project in destination repo",
+      "destinationRepoEmpty": "The destination repo is empty",
+      "destinationURLValid": "Destination URL valid and accessible?",
+      "sourceURLValid": "Source URL valid and accessible?",
+      "sourceMatchesDestination": "Source Project matches destination, or destination empty?",
+      "changeDestination": "Change Destination Repo"
     },
     "instance": {
       "confirmInstanceDelete": "Do you want to delete instance"

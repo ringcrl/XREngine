@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useHistory } from 'react-router-dom'
 
 import { ProjectService, useProjectState } from '@xrengine/client-core/src/common/services/ProjectService'
 import { useRouter } from '@xrengine/client-core/src/common/services/RouterService'
 import { useAuthState } from '@xrengine/client-core/src/user/services/AuthService'
+import ProjectDrawer from "@xrengine/client-core/src/admin/components/Project/ProjectDrawer";
 import { ProjectInterface } from '@xrengine/common/src/interfaces/ProjectInterface'
 import multiLogger from '@xrengine/common/src/logger'
 import { dispatchAction } from '@xrengine/hyperflux'
 
 import {
   ArrowRightRounded,
-  Cached,
   Check,
   Clear,
   Delete,
@@ -46,6 +45,8 @@ import { EditPermissionsDialog } from './EditPermissionsDialog'
 import { GithubRepoDialog } from './GithubRepoDialog'
 import { InstallProjectDialog } from './InstallProjectDialog'
 import styles from './styles.module.scss'
+import {initializeCoreSystems} from "@xrengine/engine/src/initializeEngine";
+import {GithubAppService, useAdminGithubAppState} from "@xrengine/client-core/src/admin/services/GithubAppService";
 
 const logger = multiLogger.child({ component: 'editor:ProjectsPage' })
 
@@ -54,6 +55,12 @@ function sortAlphabetical(a, b) {
   if (b > a) return 1
   return 0
 }
+
+const GithubAppSystemInjection = {
+  uuid: 'core.GithubAppSystem',
+  type: 'PRE_RENDER',
+  systemLoader: () => import('@xrengine/client-core/src/systems/GithubAppSystem')
+} as const
 
 const OfficialProjectData = [
   {
@@ -158,15 +165,19 @@ const ProjectsPage = () => {
   const [downloadingProject, setDownloadingProject] = useState(false)
   const [repoLinkDialogOpen, setRepoLinkDialogOpen] = useState(false)
   const [editPermissionsDialogOpen, setPermissionsDialogOpen] = useState(false)
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false)
+  const [changeDestination, setChangeDestination] = useState(false)
 
   const authState = useAuthState()
   const authUser = authState.authUser
   const user = authState.user
-  const projectState = useProjectState()
-  const projects = projectState.projects
 
   const { t } = useTranslation()
   const route = useRouter()
+
+  const githubAppState = useAdminGithubAppState()
+  const githubAppRepos = githubAppState.repos.value
+  console.log('githubAppRepos in projects page', githubAppRepos)
 
   const fetchInstalledProjects = async () => {
     setLoading(true)
@@ -218,7 +229,12 @@ const ProjectsPage = () => {
     fetchInstalledProjects()
     fetchOfficialProjects()
     fetchCommunityProjects()
+    if (user.scopes.value.find(scope => scope.type === 'projects:read')) GithubAppService.fetchGithubAppRepos()
   }, [authUser.accessToken])
+
+  useEffect(() => {
+    initializeCoreSystems([GithubAppSystemInjection])
+  }, [])
 
   // TODO: Implement tutorial
   const openTutorial = () => {
@@ -260,7 +276,6 @@ const ProjectsPage = () => {
   const closeCreateDialog = () => setCreateDialogOpen(false)
   const openInstallDialog = () => setInstallDialogOpen(true)
   const closeInstallDialog = () => setInstallDialogOpen(false)
-  const openRepoLinkDialog = () => setRepoLinkDialogOpen(true)
   const closeRepoLinkDialog = () => setRepoLinkDialogOpen(false)
   const openEditPermissionsDialog = () => setPermissionsDialogOpen(true)
   const closeEditPermissionsDialog = () => setPermissionsDialogOpen(false)
@@ -429,6 +444,16 @@ const ProjectsPage = () => {
     )
   }
 
+  const handleOpenProjectDrawer = (changeDestination=false) => {
+    setProjectDrawerOpen(true)
+    setChangeDestination(changeDestination)
+  }
+
+  const handleCloseProjectDrawer = () => {
+    setChangeDestination(false)
+    setProjectDrawerOpen(false)
+  }
+
   /**
    * Rendering view for projects page, if user is not login yet then showing login view.
    * if user is logged in and has no existing projects then the welcome view is shown, providing link to the tutorials.
@@ -439,6 +464,15 @@ const ProjectsPage = () => {
 
   return (
     <main className={styles.projectPage}>
+      <style>
+        {`
+        #menu-projectURL,
+        #menu-branchData,
+        #menu-tagData {
+          z-index: 1500;
+        }
+        `}
+      </style>
       <div className={styles.projectPageContainer}>
         <div className={styles.projectGridContainer}>
           <div className={styles.projectGridHeader}>
@@ -543,19 +577,19 @@ const ProjectsPage = () => {
             </MenuItem>
           )}
           {activeProject && isInstalled(activeProject) && hasRepo(activeProject) && (
-            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => updateProject(activeProject)}>
+            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => handleOpenProjectDrawer(false)}>
               {downloadingProject ? <CircularProgress size={15} className={styles.progressbar} /> : <Download />}
               {t(`editor.projects.updateFromGithub`)}
             </MenuItem>
           )}
           {activeProject && isInstalled(activeProject) && !hasRepo(activeProject) && (
-            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={openRepoLinkDialog}>
+            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => handleOpenProjectDrawer(true) }>
               <Link />
               {t(`editor.projects.link`)}
             </MenuItem>
           )}
           {activeProject && isInstalled(activeProject) && hasRepo(activeProject) && (
-            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={openRepoLinkDialog}>
+            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => handleOpenProjectDrawer(true) }>
               <LinkOff />
               {t(`editor.projects.unlink`)}
             </MenuItem>
@@ -564,12 +598,6 @@ const ProjectsPage = () => {
             <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => pushProject(activeProject.id)}>
               {uploadingProject ? <CircularProgress size={15} className={styles.progressbar} /> : <Upload />}
               {t(`editor.projects.pushToGithub`)}
-            </MenuItem>
-          )}
-          {activeProject && isInstalled(activeProject) && hasRepo(activeProject) && (
-            <MenuItem classes={{ root: styles.filterMenuItem }} onClick={() => updateProject(activeProject, true)}>
-              {downloadingProject ? <CircularProgress size={15} className={styles.progressbar} /> : <Cached />}
-              {t(`editor.projects.resetToMain`)}
             </MenuItem>
           )}
           {isInstalled(activeProject) ? (
@@ -601,6 +629,15 @@ const ProjectsPage = () => {
           removePermission={onRemovePermission}
         />
       )}
+      {activeProject &&
+      <ProjectDrawer
+          open={projectDrawerOpen}
+          repos={githubAppRepos}
+          inputProject={activeProject}
+          existingProject={true}
+          onClose={handleCloseProjectDrawer}
+          changeDestination={changeDestination}
+      />}
       <DeleteDialog
         open={isDeleteDialogOpen}
         isProjectMenu

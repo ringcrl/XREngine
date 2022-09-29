@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { ProjectInterface } from '@xrengine/common/src/interfaces/ProjectInterface'
 import multiLogger from '@xrengine/common/src/logger'
 
-import Cached from '@mui/icons-material/Cached'
 import Cross from '@mui/icons-material/Cancel'
 import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import Download from '@mui/icons-material/Download'
@@ -23,13 +22,11 @@ import { useAuthState } from '../../../user/services/AuthService'
 import ConfirmDialog from '../../common/ConfirmDialog'
 import TableComponent from '../../common/Table'
 import { projectsColumns } from '../../common/variables/projects'
-import { useClientSettingState } from '../../services/Setting/ClientSettingService'
 import styles from '../../styles/admin.module.scss'
-import GithubRepoDrawer from './GithubRepoDrawer'
 import ProjectFilesDrawer from './ProjectFilesDrawer'
 import UserPermissionDrawer from './UserPermissionDrawer'
 import ProjectDrawer from "./ProjectDrawer";
-import {useAdminGithubAppState} from "../../services/GithubAppService";
+import {GithubAppService, useAdminGithubAppState} from "../../services/GithubAppService";
 
 const logger = multiLogger.child({ component: 'client-core:ProjectTable' })
 
@@ -61,6 +58,7 @@ const ProjectTable = ({ className }: Props) => {
   const [openUserPermissionDrawer, setOpenUserPermissionDrawer] = useState(false)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(PROJECT_PAGE_LIMIT)
+  const [changeDestination, setChangeDestination] = useState(false)
 
   const githubAppState = useAdminGithubAppState()
   const githubAppRepos = githubAppState.repos.value
@@ -69,8 +67,6 @@ const ProjectTable = ({ className }: Props) => {
   const adminProjectCount = adminProjects.value.length
   const authState = useAuthState()
   const user = authState.user
-  const clientSettingState = useClientSettingState()
-  const [clientSetting] = clientSettingState?.client?.value || []
 
   const projectRef = useRef(project)
 
@@ -80,6 +76,10 @@ const ProjectTable = ({ className }: Props) => {
   }
 
   ProjectService.useAPIListeners()
+
+  useEffect(() => {
+    if (user?.scopes?.value?.find(scope => scope.type === 'projects:read')) GithubAppService.fetchGithubAppRepos()
+  }, [user])
 
   useEffect(() => {
     if (project) setProject(adminProjects.value.find((proj) => proj.name === project.name)!)
@@ -97,28 +97,6 @@ const ProjectTable = ({ className }: Props) => {
         }
       }
     } catch (err) {
-      logger.error(err)
-    }
-  }
-
-  const handleReuploadProjects = async (reset?: boolean) => {
-    try {
-      if (projectRef.current) {
-        if (!projectRef.current.repositoryPath && projectRef.current.name !== 'default-project') return
-
-        const existingProjects = adminProjects.value.find((p) => p.name === projectRef.current!.name)!
-        setProcessing(true)
-        await ProjectService.uploadProject(
-          projectRef.current.name === 'default-project' ? 'default-project' : existingProjects.repositoryPath,
-          projectRef.current.name,
-          reset
-        )
-        setProcessing(false)
-
-        handleCloseConfirmation()
-      }
-    } catch (err) {
-      setProcessing(false)
       logger.error(err)
     }
   }
@@ -151,30 +129,6 @@ const ProjectTable = ({ className }: Props) => {
       setProcessing(false)
       logger.error(err)
     }
-  }
-
-  const openMainResetConfirmation = (row) => {
-    setProject(row)
-
-    setConfirm({
-      open: true,
-      processing: processing,
-      description: `${t('admin:components.project.confirmProjectResetMain1')} '${row.name}' ${t(
-        'admin:components.project.confirmProjectResetMain2'
-      )} '${clientSetting.releaseName}-deployment', ${t('admin:components.project.confirmProjectResetMain3')}`,
-      onSubmit: () => handleReuploadProjects(true)
-    })
-  }
-
-  const openReuploadConfirmation = (row) => {
-    setProject(row)
-
-    setConfirm({
-      open: true,
-      processing: processing,
-      description: `${t('admin:components.project.confirmProjectRebuild')} '${row.name}'?`,
-      onSubmit: () => handleReuploadProjects(false)
-    })
   }
 
   const openPushConfirmation = (row) => {
@@ -215,8 +169,9 @@ const ProjectTable = ({ className }: Props) => {
     setShowProjectFiles(true)
   }
 
-  const handleOpenProjectDrawer = (row) => {
+  const handleOpenProjectDrawer = (row, changeDestination=false) => {
     setProject(row)
+    setChangeDestination(changeDestination)
     setOpenProjectDrawer(true)
   }
 
@@ -226,6 +181,7 @@ const ProjectTable = ({ className }: Props) => {
   }
 
   const handleCloseProjectDrawer = () => {
+    setChangeDestination(false)
     setOpenProjectDrawer(false)
     setProject(undefined)
   }
@@ -295,7 +251,7 @@ const ProjectTable = ({ className }: Props) => {
       ),
       link: (
         <>
-          <IconButton className={styles.iconButton} name="update" onClick={() => handleOpenGithubRepoDrawer(el)}>
+          <IconButton className={styles.iconButton} name="update" onClick={() => handleOpenProjectDrawer(el, true)}>
             {el.repositoryPath && <LinkOffIcon />}
             {!el.repositoryPath && <LinkIcon />}
           </IconButton>
@@ -332,20 +288,6 @@ const ProjectTable = ({ className }: Props) => {
           )}
         </>
       ),
-      reset: (
-        <>
-          {isAdmin && (
-            <IconButton
-              className={styles.iconButton}
-              name="resetToMain"
-              disabled={el.repositoryPath === null && name !== 'default-project'}
-              onClick={() => openMainResetConfirmation(el)}
-            >
-              <Cached />
-            </IconButton>
-          )}
-        </>
-      ),
       action: (
         <>
           {isAdmin && (
@@ -376,7 +318,7 @@ const ProjectTable = ({ className }: Props) => {
       />
 
       {openProjectDrawer && project && (
-        <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} inputProjectURL={project.repositoryPath} existingProject={true} onClose={() => setOpenProjectDrawer(false)} />
+        <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} changeDestination={changeDestination} inputProject={project} existingProject={true} onClose={() => handleCloseProjectDrawer()} />
       )}
 
       {project && (

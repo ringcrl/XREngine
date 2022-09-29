@@ -21,14 +21,18 @@ import InputSelect, { InputMenuItem } from '../../common/InputSelect'
 import InputText from '../../common/InputText'
 import LoadingView from '../../common/LoadingView'
 import styles from '../../styles/admin.module.scss'
+import {ProjectInterface} from "@xrengine/common/src/interfaces/ProjectInterface";
 
 interface Props {
   open: boolean
   repos: GithubAppInterface[]
+  inputProject?: ProjectInterface | null
+  existingProject?: boolean
   onClose: () => void
+  changeDestination?: boolean
 }
 
-const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false, onClose }: Props) => {
+const ProjectDrawer = ({ open, repos, inputProject, existingProject=false, onClose, changeDestination=false }: Props) => {
   const { t } = useTranslation()
   const [sourceURL, setSourceURL] = useState('')
   const [destinationURL, setDestinationURL] = useState('')
@@ -55,14 +59,26 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   const [sourceVsDestinationError, setSourceVsDestinationError] = useState('')
   const [sourceProjectMatchesDestination, setSourceProjectMatchesDestination] = useState(false)
   const [projectName, setProjectName] = useState('')
+  const [destinationProjectName, setDestinationProjectName] = useState('')
+  const [destinationRepoEmpty, setDestinationRepoEmpty] = useState(false)
+  const [sourceProjectName, setSourceProjectName] = useState('')
 
   const selfUser = useAuthState().user
 
+  console.log('inputProject', inputProject)
+  console.log('existingProject', existingProject)
+  console.log('changeDestination', changeDestination)
+  console.log('repos', repos)
+
   const handleSubmit = async () => {
     try {
-      if (sourceURL) {
+      if (existingProject && changeDestination) {
+        await ProjectService.setRepositoryPath(inputProject.id, destinationURL)
+        handleClose()
+      }
+      else if (sourceURL) {
         setProcessing(true)
-        await ProjectService.uploadProject(sourceURL, destinationURL, projectName, !existingProject, selectedSHA)
+        await ProjectService.uploadProject(sourceURL, destinationURL, projectName, true, selectedSHA)
         setProcessing(false)
         handleClose()
       } else {
@@ -90,15 +106,19 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
     setBranchError('')
     setTagError('')
     setSourceValid(false)
+    setSourceProjectName('')
     setSourceProjectMatchesDestination(false)
   }
 
   const resetDestinationState = ({ resetDestinationURL=true, resetDestinationType=true}) => {
+    setSubmitDisabled(true)
     if (resetDestinationURL) setDestinationURL('')
     if (resetDestinationType) setDestinationType('url')
     setDestinationValid(false)
     setDestinationError('')
     setSourceProjectMatchesDestination(false)
+    setDestinationProjectName('')
+    setDestinationRepoEmpty(false)
   }
 
   const handleChangeDestinationType = (e) => {
@@ -133,7 +153,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
     try {
       resetSourceState({resetSourceURL: false, resetSourceType: false })
       setBranchProcessing(true)
-      const branchResponse = await ProjectService.fetchProjectBranches(e.target.value, sourceType === 'url', existingProject)
+      const branchResponse = await ProjectService.fetchProjectBranches(e.target.value, sourceType === 'url')
       setBranchProcessing(false)
       if (branchResponse.error) {
         setShowBranchSelector(false)
@@ -150,26 +170,36 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   }
 
   const handleChangeDestinationRepo = async (e) => {
-    try {
-      resetDestinationState({ resetDestinationURL: false, resetDestinationType: false })
-      setDestinationValid(false)
-      setDestinationProcessing(true)
-      const destinationResponse = await ProjectService.checkDestinationURLValid(e.target.value, destinationType === 'url')
-      setDestinationProcessing(false)
-      if (destinationResponse.error) {
+    if (e.target.value && e.target.value.length > 0) {
+      try {
+        resetDestinationState({resetDestinationURL: false, resetDestinationType: false})
         setDestinationValid(false)
-        setDestinationError(destinationResponse.text)
-      } else {
-        if (destinationResponse.destinationValid) setDestinationValid(destinationResponse.destinationValid)
-        else {
+        setDestinationProcessing(true)
+        const destinationResponse = await ProjectService.checkDestinationURLValid({
+          url: e.target.value,
+          isPublicURL: destinationType === 'url',
+          inputProjectURL: inputProject?.repositoryPath
+        })
+        setDestinationProcessing(false)
+        if (destinationResponse.error) {
           setDestinationValid(false)
-          setDestinationError('Destination URL is not valid')
+          setDestinationError(destinationResponse.text)
+        } else {
+          if (destinationResponse.destinationValid) {
+            if (existingProject && changeDestination) setSubmitDisabled(false)
+            setDestinationValid(destinationResponse.destinationValid)
+            if (destinationResponse.projectName) setDestinationProjectName(destinationResponse.projectName)
+            if (destinationResponse.repoEmpty) setDestinationRepoEmpty(true)
+          } else {
+            setDestinationValid(false)
+            setDestinationError(destinationResponse.text)
+          }
         }
+      } catch (err) {
+        setDestinationProcessing(false)
+        setDestinationValid(false)
+        console.log('Destination error', err)
       }
-    } catch(err) {
-      setDestinationProcessing(false)
-      setDestinationValid(false)
-      console.log('Destination error', err)
     }
   }
 
@@ -198,6 +228,8 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
 
   const handleTagChange = async (e) => {
     setSelectedSHA(e.target.value)
+    const matchingTag = tagData.find(data => data.commitSHA === e.target.value)
+    setSourceProjectName(matchingTag.projectName || '')
     setTagError('')
     setSourceValid(true)
   }
@@ -208,6 +240,8 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
       label: `${el.name} (${el.user})`
     }
   })
+
+  console.log('projectMenu', projectMenu)
 
   const branchMenu: InputMenuItem[] = branchData.map(el => {
     return {
@@ -224,15 +258,15 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
   })
   
   useEffect(() => {
-    if (inputProjectURL && inputProjectURL.length > 0) {
-      setSourcURL(inputProjectURL)
+    if (open && inputProject) {
+      setDestinationURL(inputProject.repositoryPath)
       handleChangeDestinationRepo({
         target: {
-          value: inputProjectURL
+          value: inputProject.repositoryPath
         }
       })
     }
-  }, [])
+  }, [open])
 
   useEffect(() => {
     if (destinationValid && sourceValid) {
@@ -252,10 +286,12 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
             }
           })
     } else {
-      setSourceVsDestinationProcessing(false)
-      setProjectName('')
-      setSubmitDisabled(true)
-      setSourceProjectMatchesDestination(false)
+      if (!(existingProject && changeDestination)) {
+        setSourceVsDestinationProcessing(false)
+        setProjectName('')
+        setSubmitDisabled(true)
+        setSourceProjectMatchesDestination(false)
+      }
     }
   }, [destinationValid, sourceValid])
 
@@ -265,7 +301,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
         <DialogTitle className={classNames({
           [styles.textAlign]: true,
           [styles.drawerHeader]: true
-        })}> {existingProject ? t('admin:components.project.updateProject'): t('admin:components.project.addProject')}</DialogTitle>
+        })}> {(existingProject && !changeDestination) ? t('admin:components.project.updateProject') : (existingProject && changeDestination) ? t('admin:components.project.changeDestination') : t('admin:components.project.addProject')}</DialogTitle>
 
         <DialogTitle className={classNames({
             [styles.textAlign]: true,
@@ -274,7 +310,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
           {t('admin:components.project.destination')}
         </DialogTitle>
 
-        {!processing && !existingProject && (
+        {!processing && !(existingProject && !changeDestination) && (
             <InputRadio
                 name="destination"
                 label={t('admin:components.project.destinationType')}
@@ -289,7 +325,7 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
             />
         )}
 
-        {!existingProject && destinationType === 'list' && repos && repos.length != 0 ? (
+        {!(existingProject && !changeDestination) && destinationType === 'list' && repos && repos.length != 0 ? (
             <InputSelect
                 name="projectURL"
                 label={t('admin:components.project.project')}
@@ -299,28 +335,30 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
                 onChange={(e) => { handleChangeDestination(e); handleChangeDestinationRepo(e);}}
             />
         ) : (
-            (hasGithubProvider || existingProject) ?
-                <InputText
-                    name="urlSelect"
-                    label={t('admin:components.project.githubPublicUrl')}
-                    value={destinationURL}
-                    error={destinationError}
-                    disabled={existingProject}
-                    onChange={handleChangeDestination}
-                    onBlur={handleChangeDestinationRepo}
-                /> : <div className={styles.textAlign}>{t('admin:components.project.needsGithubProvider')}</div>
+            hasGithubProvider ?
+              <InputText
+                  name="urlSelect"
+                  label={t('admin:components.project.githubPublicUrl')}
+                  value={destinationURL}
+                  error={destinationError}
+                  disabled={(existingProject || false) && !changeDestination}
+                  onChange={handleChangeDestination}
+                  onBlur={handleChangeDestinationRepo}
+              /> : <div className={styles.textAlign}>{t('admin:components.project.needsGithubProvider')}</div>
         )}
 
+        {!destinationProcessing && destinationProjectName.length > 0 && <div className={styles.projectVersion}>{`${t('admin:components.project.destinationProjectName')}: ${destinationProjectName}`}</div>}
+        {!destinationProcessing && destinationRepoEmpty && <div className={styles.projectVersion}>{t('admin:components.project.destinationRepoEmpty')}</div>}
         {destinationProcessing && <LoadingView title={t('admin:components.project.destinationProcessing')} variant="body1" fullHeight={false}/>}
 
-        <DialogTitle className={classNames({
+        { !changeDestination && <DialogTitle className={classNames({
           [styles.textAlign]: true,
           [styles.drawerSubHeader]: true
         })}>
           {t('admin:components.project.source')}
-        </DialogTitle>
+        </DialogTitle>}
 
-        {!processing && !existingProject && (
+        {!processing && !changeDestination && (
           <InputRadio
             name="source"
             label={t('admin:components.project.sourceType')}
@@ -335,49 +373,52 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
           />
         )}
 
-        {!existingProject && sourceType === 'list' && repos && repos.length != 0 ? (
-          <InputSelect
-            name="projectURL"
-            label={t('admin:components.project.project')}
-            value={sourceURL}
-            menu={projectMenu}
-            error={urlError}
-            onChange={(e) => { handleChangeSource(e); handleChangeSourceRepo(e);}}
-          />
-        ) : (
-          (hasGithubProvider || existingProject) ?
-          <InputText
-            name="urlSelect"
-            label={t('admin:components.project.githubPublicUrl')}
-            value={sourceURL}
-            error={urlError}
-            disabled={existingProject}
-            onChange={handleChangeSource}
-            onBlur={handleChangeSourceRepo}
-          /> : <div className={styles.textAlign}>{t('admin:components.project.needsGithubProvider')}</div>
-        )}
-
-        {!processing && !branchProcessing && branchData && branchData.length > 0 && showBranchSelector && (
+        {!changeDestination && <div>
+          {sourceType === 'list' && repos && repos.length != 0 ? (
             <InputSelect
-                name="branchData"
-                label={t('admin:components.project.branchData')}
-                value={selectedBranch}
-                menu={branchMenu}
-                error={branchError}
-                onChange={handleChangeBranch}
+              name="projectURL"
+              label={t('admin:components.project.project')}
+              value={sourceURL}
+              menu={projectMenu}
+              error={urlError}
+              onChange={(e) => { handleChangeSource(e); handleChangeSourceRepo(e);}}
             />
-        )}
+          ) : (
+            hasGithubProvider ?
+            <InputText
+              name="urlSelect"
+              label={t('admin:components.project.githubPublicUrl')}
+              value={sourceURL}
+              error={urlError}
+              onChange={handleChangeSource}
+              onBlur={handleChangeSourceRepo}
+            /> : <div className={styles.textAlign}>{t('admin:components.project.needsGithubProvider')}</div>
+          )}
 
-        {!processing && !tagsProcessing && tagData && tagData.length > 0 && showTagSelector && (
-            <InputSelect
-                name="tagData"
-                label={t('admin:components.project.tagData')}
-                value={selectedSHA}
-                menu={tagMenu}
-                error={tagError}
-                onChange={handleTagChange}
-            />
-        )}
+          {!processing && !branchProcessing && branchData && branchData.length > 0 && showBranchSelector && (
+              <InputSelect
+                  name="branchData"
+                  label={t('admin:components.project.branchData')}
+                  value={selectedBranch}
+                  menu={branchMenu}
+                  error={branchError}
+                  onChange={handleChangeBranch}
+              />
+          )}
+
+          {!processing && !tagsProcessing && tagData && tagData.length > 0 && showTagSelector && (
+              <InputSelect
+                  name="tagData"
+                  label={t('admin:components.project.tagData')}
+                  value={selectedSHA}
+                  menu={tagMenu}
+                  error={tagError}
+                  onChange={handleTagChange}
+              />
+          )}
+        </div>}
+
+        {!processing && !tagsProcessing && sourceProjectName.length > 0 && <div className={styles.projectVersion}>{`${t('admin:components.project.sourceProjectName')}: ${sourceProjectName}`}</div>}
 
         {branchProcessing && <LoadingView title={t('admin:components.project.branchProcessing')} variant="body1" fullHeight={false} />}
         {tagsProcessing && <LoadingView title={t('admin:components.project.tagsProcessing')} variant="body1" fullHeight={false} />}
@@ -403,28 +444,28 @@ const ProjectDrawer = ({ open, repos, inputProjectURL='', existingProject=false,
         })}>
           {destinationValid && <CheckCircle />}
           {!destinationValid && <Cancel />}
-          Destination URL valid and accessible?
+          {t('admin:components.project.destinationURLValid')}
         </div>
 
-        <div className={classNames({
+        {!(existingProject && changeDestination) && <div className={classNames({
           [styles.validContainer]: true,
           [styles.valid]: sourceValid,
           [styles.invalid]: !sourceValid
         })}>
           {sourceValid && <CheckCircle />}
           {!sourceValid && <Cancel />}
-          Source URL valid and accessible?
-        </div>
+          {t('admin:components.project.sourceURLValid')}
+        </div>}
 
-        <div className={classNames({
+        {!(existingProject && changeDestination) && <div className={classNames({
           [styles.validContainer]: true,
           [styles.valid]: sourceProjectMatchesDestination,
           [styles.invalid]: !sourceProjectMatchesDestination
         })}>
           {sourceProjectMatchesDestination && <CheckCircle />}
           {!sourceProjectMatchesDestination && <Cancel />}
-          Source Project matches Destination, or destination empty?
-        </div>
+          {t('admin:components.project.sourceMatchesDestination')}
+        </div> }
 
         <DialogActions>
           {!processing && (

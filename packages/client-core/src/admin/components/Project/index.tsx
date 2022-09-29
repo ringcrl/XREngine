@@ -25,7 +25,6 @@ const Projects = () => {
   const [isFirstRun, setIsFirstRun] = useState(true)
 
   const handleOpenProjectDrawer = () => {
-    GithubAppService.fetchGithubAppRepos()
     setOpenProjectDrawer(true)
   }
 
@@ -43,6 +42,10 @@ const Projects = () => {
   useEffect(() => {
     ProjectService.checkReloadStatus()
   }, [])
+
+  useEffect(() => {
+    if (user?.scopes?.value?.find(scope => scope.type === 'projects:read')) GithubAppService.fetchGithubAppRepos()
+  }, [user])
 
   useEffect(() => {
     let interval
