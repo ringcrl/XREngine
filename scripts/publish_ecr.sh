@@ -8,6 +8,7 @@ LABEL=$3
 PACKAGE=$4
 PRIVATE_ECR=$5
 REGION=$6
+EEVERSION=$(jq -r .version ../packages/server-core/package.json)
 
 if [ $PRIVATE_ECR == "true" ]
 then
@@ -20,6 +21,7 @@ else
   node ./scripts/prune_ecr_images.js --repoName $REPO_NAME-$PACKAGE --region us-east-1 --public
 fi
 
-docker tag $LABEL-$PACKAGE $ECR_URL/$REPO_NAME-$PACKAGE:$TAG & docker tag $LABEL-$PACKAGE $ECR_URL/$REPO_NAME-$PACKAGE:latest_$STAGE
-docker push $ECR_URL/$REPO_NAME-$PACKAGE:$TAG
+docker tag $LABEL-$PACKAGE $ECR_URL/$REPO_NAME-$PACKAGE:$EEVERSION-$TAG
+docker tag $LABEL-$PACKAGE $ECR_URL/$REPO_NAME-$PACKAGE:latest_$STAGE
+docker push $ECR_URL/$REPO_NAME-$PACKAGE:$EEVERSION-$TAG
 docker push $ECR_URL/$REPO_NAME-$PACKAGE:latest_$STAGE

@@ -251,7 +251,6 @@ export class Project extends Service {
     placeholder?: null,
     params?: UserParams
   ) {
-    console.log('project update data', data)
     if (data.sourceURL === 'default-project') {
       copyDefaultProject()
       await uploadLocalProjectToProvider('default-project')
@@ -260,7 +259,6 @@ export class Project extends Service {
 
     const urlParts = data.sourceURL.split('/')
     let projectName = data.name || urlParts.pop()
-    console.log('projectName', projectName)
     if (!projectName) throw new Error('Git repo must be plain URL')
     if (projectName.substring(projectName.length - 4) === '.git') projectName = projectName.slice(0, -4)
     if (projectName.substring(projectName.length - 1) === '/') projectName = projectName.slice(0, -1)

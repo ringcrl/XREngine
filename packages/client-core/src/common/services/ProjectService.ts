@@ -6,6 +6,8 @@ import { matches, Validator } from '@xrengine/engine/src/common/functions/Matche
 import { defineAction, defineState, dispatchAction, getState, useState } from '@xrengine/hyperflux'
 
 import { API } from '../../API'
+import {AdminGithubAppActions} from "../../admin/services/GithubAppService";
+import {BuilderTag} from "@xrengine/common/src/interfaces/BuilderTags";
 
 const logger = multiLogger.child({ component: 'client-core:projects' })
 
@@ -17,7 +19,8 @@ export const ProjectState = defineState({
   initial: () => ({
     projects: [] as Array<ProjectInterface>,
     updateNeeded: true,
-    rebuilding: true
+    rebuilding: true,
+    builderTags: [] as Array<BuilderTag>
   })
 })
 
@@ -37,6 +40,9 @@ export const ProjectServiceReceptor = (action) => {
     })
     .when(ProjectAction.patchedProject.matches, (action) => {
       return s.merge({ updateNeeded: true })
+    })
+    .when(ProjectAction.builderTagsFetched.matches, (action) => {
+      return s.merge({ builderTags: action.builderTags })
     })
 }
 
@@ -80,18 +86,6 @@ export const ProjectService = {
     const result = await API.instance.client.service('project-build').find()
     logger.info({ result }, 'Check reload projects result')
     dispatchAction(ProjectAction.reloadStatusFetched({ status: result }))
-  },
-
-  // restricted to admin scope
-  triggerReload: async () => {
-    try {
-      dispatchAction(ProjectAction.reloadStatusFetched({ status: true }))
-      const result = await API.instance.client.service('project-build').patch({ rebuild: true })
-      logger.info({ result }, 'Reload projects result')
-    } catch (err) {
-      logger.error(err, 'Error reload projects result.')
-      dispatchAction(ProjectAction.reloadStatusFetched({ status: false }))
-    }
   },
 
   // restricted to admin scope
@@ -230,6 +224,26 @@ export const ProjectService = {
       logger.error('Error with checking source matches destination', err)
       throw err
     }
+  },
+
+  updateEngine: async(tag: string) => {
+    try {
+      await API.instance.client.service('project-build').patch(tag)
+    } catch(err) {
+      logger.error('Error with updating engine version', err)
+      throw err
+    }
+  },
+
+  fetchBuilderTags: async () => {
+    try {
+      const result = await API.instance.client.service('project-builder-tags').find()
+      console.log('builder tag result', result)
+      dispatchAction(ProjectAction.builderTagsFetched({ builderTags: result }))
+    } catch(err) {
+      logger.error('Error with getting builder tags', err)
+      throw err
+    }
   }
 }
 
@@ -256,6 +270,11 @@ export class ProjectAction {
   static patchedProject = defineAction({
     type: 'xre.client.Project.PROJECT_PATCHED' as const,
     project: matches.object as Validator<unknown, ProjectInterface>
+  })
+
+  static builderTagsFetched = defineAction({
+    type: 'xre.client.Project.BUILDER_TAGS_RETRIEVED' as const,
+    builderTags: matches.array as Validator<unknown, BuilderTag[]>
   })
 
   // TODO

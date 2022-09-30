@@ -7,11 +7,11 @@ import Grid from '@mui/material/Grid'
 
 import { ProjectService, useProjectState } from '../../../common/services/ProjectService'
 import { useAuthState } from '../../../user/services/AuthService'
-import ConfirmDialog from '../../common/ConfirmDialog'
 import { GithubAppService, useAdminGithubAppState } from '../../services/GithubAppService'
 import styles from '../../styles/admin.module.scss'
 import ProjectDrawer from './ProjectDrawer'
 import ProjectTable from './ProjectTable'
+import UpdateDrawer from './UpdateDrawer'
 
 const Projects = () => {
   const authState = useAuthState()
@@ -19,24 +19,18 @@ const Projects = () => {
   const adminProjectState = useProjectState()
   const githubAppState = useAdminGithubAppState()
   const githubAppRepos = githubAppState.repos.value
+  const builderTags = adminProjectState.builderTags.value
   const { t } = useTranslation()
-  const [openProjectDrawer, setOpenProjectDrawer] = useState(false)
-  const [rebuildModalOpen, setRebuildModalOpen] = useState(false)
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false)
+  const [updateDrawerOpen, setUpdateDrawerOpen] = useState(false)
   const [isFirstRun, setIsFirstRun] = useState(true)
 
   const handleOpenProjectDrawer = () => {
-    setOpenProjectDrawer(true)
+    setProjectDrawerOpen(true)
   }
 
-  const handleSubmitRebuild = async () => {
-    setRebuildModalOpen(false)
-
-    await ProjectService.triggerReload()
-
-    // This sleep is to ensure previous pod is terminated and new one is started.
-    await sleep(60000)
-
-    await ProjectService.checkReloadStatus()
+  const handleOpenUpdateDrawer = () => {
+    setUpdateDrawerOpen(true)
   }
 
   useEffect(() => {
@@ -44,7 +38,10 @@ const Projects = () => {
   }, [])
 
   useEffect(() => {
-    if (user?.scopes?.value?.find(scope => scope.type === 'projects:read')) GithubAppService.fetchGithubAppRepos()
+    if (user?.scopes?.value?.find(scope => scope.type === 'projects:read')) {
+      GithubAppService.fetchGithubAppRepos()
+      ProjectService.fetchBuilderTags()
+    }
   }, [user])
 
   useEffect(() => {
@@ -88,7 +85,7 @@ const Projects = () => {
             type="button"
             variant="contained"
             color="primary"
-            onClick={() => setRebuildModalOpen(true)}
+            onClick={() => handleOpenUpdateDrawer()}
           >
             {adminProjectState.rebuilding.value ? (
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -96,7 +93,7 @@ const Projects = () => {
                 {isFirstRun ? t('admin:components.project.checking') : t('admin:components.project.rebuilding')}
               </Box>
             ) : (
-              t('admin:components.project.rebuild')
+              t('admin:components.project.updateAndRebuild')
             )}
           </Button>
         </Grid>
@@ -104,14 +101,9 @@ const Projects = () => {
 
       <ProjectTable className={styles.rootTableWithSearch} />
 
-      <ConfirmDialog
-        open={rebuildModalOpen}
-        description={t('admin:components.project.confirmProjectsRebuild')}
-        onClose={() => setRebuildModalOpen(false)}
-        onSubmit={handleSubmitRebuild}
-      />
+      <UpdateDrawer open={updateDrawerOpen} builderTags={builderTags} onClose={() => setUpdateDrawerOpen(false)} />
 
-      <ProjectDrawer open={openProjectDrawer} repos={githubAppRepos} onClose={() => setOpenProjectDrawer(false)} />
+      <ProjectDrawer open={projectDrawerOpen} repos={githubAppRepos} onClose={() => setProjectDrawerOpen(false)} />
     </div>
   )
 }

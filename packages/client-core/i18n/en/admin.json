@@ -135,6 +135,8 @@
       "updateProject": "Update Project",
       "rebuild": "Rebuild",
       "rebuilding": "Rebuilding",
+      "updateEngine": "Update Engine",
+      "updateAndRebuild": "Update Engine/Rebuild",
       "checking": "Checking Rebuild",
       "project": "Project",
       "githubPublicUrl": "Github Public URL",

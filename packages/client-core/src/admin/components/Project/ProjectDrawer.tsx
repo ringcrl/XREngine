@@ -65,11 +65,6 @@ const ProjectDrawer = ({ open, repos, inputProject, existingProject=false, onClo
 
   const selfUser = useAuthState().user
 
-  console.log('inputProject', inputProject)
-  console.log('existingProject', existingProject)
-  console.log('changeDestination', changeDestination)
-  console.log('repos', repos)
-
   const handleSubmit = async () => {
     try {
       if (existingProject && changeDestination) {
@@ -241,8 +236,6 @@ const ProjectDrawer = ({ open, repos, inputProject, existingProject=false, onClo
     }
   })
 
-  console.log('projectMenu', projectMenu)
-
   const branchMenu: InputMenuItem[] = branchData.map(el => {
     return {
       value: el.name,
@@ -253,7 +246,7 @@ const ProjectDrawer = ({ open, repos, inputProject, existingProject=false, onClo
   const tagMenu: InputMenuItem[] = tagData.map(el => {
     return {
       value: el.commitSHA,
-      label: `Project Version ${el.projectVersion} - Engine Version ${el.engineVersion} - Commit ${el.commitSHA.slice(0, 8)}`
+      label: `Project Version ${el.projectVersion} -- Engine Version ${el.engineVersion} -- Commit ${el.commitSHA.slice(0, 8)}`
     }
   })
   
